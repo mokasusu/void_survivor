@@ -7,14 +7,17 @@ class PlayerBulletManager:
 
         self.bullets = []
 
-    def shoot(self, x, y):
+    def shoot(self, x, y, weapon_level=1):
 
-        bullet = PlayerBullet(
-            x,
-            y,
-            -14
-        )
-        self.bullets.append(bullet)
+        if weapon_level == 1:
+            self.bullets.append(PlayerBullet(x, y, -14, 0))
+        elif weapon_level == 2:
+            self.bullets.append(PlayerBullet(x, y - 10, -14, 0))
+            self.bullets.append(PlayerBullet(x, y + 10, -14, 0))
+        elif weapon_level >= 3:
+            self.bullets.append(PlayerBullet(x, y, -14, 0))
+            self.bullets.append(PlayerBullet(x, y, -14, -2))
+            self.bullets.append(PlayerBullet(x, y, -14, 2))
 
     def update(self):
 

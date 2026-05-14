@@ -120,3 +120,28 @@ class UI:
                 self.boss_hp_frame,
                 (frame_x, frame_y)
             )
+
+    def draw_weapon_level(self, screen, weapon_level):
+        colors = {
+            1: (180, 180, 180),
+            2: (255, 220, 50),
+            3: (50, 230, 255),
+        }
+        labels = {1: "GUN  LV.1", 2: "GUN  LV.2", 3: "GUN  LV.3"}
+        color = colors.get(weapon_level, (255, 255, 255))
+        label = labels.get(weapon_level, f"GUN LV.{weapon_level}")
+
+        small_font = pygame.font.SysFont(
+            ["Orbitron", "Audiowide", "Consolas"], 18
+        )
+        text = small_font.render(label, True, color)
+        x = screen.get_width() - text.get_width() - 20
+        y = 58
+        screen.blit(text, (x, y))
+
+        # Bullet icons
+        icon_y = y + 24
+        for i in range(weapon_level):
+            icon_x = screen.get_width() - 20 - (weapon_level - i) * 14
+            pygame.draw.circle(screen, color, (icon_x, icon_y), 4)
+            pygame.draw.circle(screen, (255, 255, 255), (icon_x, icon_y), 4, 1)

@@ -9,12 +9,13 @@ class Bullet:
     RADIUS = 10
     SIZE = 64
 
-    def __init__(self, x, y, speed):
+    def __init__(self, x, y, speed_x, speed_y=0):
 
         self.x = x
         self.y = y
 
-        self.speed = speed
+        self.speed_x = speed_x
+        self.speed_y = speed_y
         self.sprite = load_image(
             "bullet.png",
             (self.SIZE, self.SIZE)
@@ -22,7 +23,8 @@ class Bullet:
 
     def update(self):
 
-        self.x += self.speed
+        self.x += self.speed_x
+        self.y += self.speed_y
 
     def is_outside_screen(self):
 

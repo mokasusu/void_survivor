@@ -8,11 +8,12 @@ class PlayerBullet:
     RADIUS = 8
     SIZE = 44
 
-    def __init__(self, x, y, speed):
+    def __init__(self, x, y, speed_x, speed_y=0):
 
         self.x = x
         self.y = y
-        self.speed = speed
+        self.speed_x = speed_x
+        self.speed_y = speed_y
         self.sprite = load_image("player_bullet.png")
         if self.sprite is not None:
             width, height = self.sprite.get_size()
@@ -28,7 +29,8 @@ class PlayerBullet:
 
     def update(self):
 
-        self.x += self.speed
+        self.x += self.speed_x
+        self.y += self.speed_y
 
     def is_outside_screen(self):
 
