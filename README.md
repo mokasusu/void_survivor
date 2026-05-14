@@ -17,7 +17,7 @@ Hoặc chạy file `run.bat` trên Windows.
 
 | Phím | Chức năng |
 |------|-----------|
-| ↑ / ↓ | Di chuyển |
+| ← / → / ↑ / ↓ | Di chuyển |
 | SPACE | Bắn |
 | ESC | Quay lại menu |
 | R | Chơi lại |
@@ -26,6 +26,11 @@ Hoặc chạy file `run.bat` trên Windows.
 
 - **Survival**: Né đạn và sống càng lâu càng tốt
 - **Boss**: Đánh bại boss 100 HP
+
+## Tính năng mới
+
+- Di chuyển trái/phải bằng mũi tên ← →
+- Khi người chơi trúng đạn của boss hoặc va chạm với boss, người chơi sẽ có thời gian bất tử 3 giây (nhấp nháy, không nhậnDamage)
 
 ## Cấu trúc thư mục
 
