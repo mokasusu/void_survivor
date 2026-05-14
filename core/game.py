@@ -107,6 +107,8 @@ class Game:
 
     def handle_collision(self):
 
+        now = pygame.time.get_ticks()
+
         for bullet in self.bullet_manager.bullets[:]:
 
             if CollisionSystem.check(
@@ -114,17 +116,20 @@ class Game:
                 bullet
             ):
 
-                self.player.take_damage()
-
                 self.bullet_manager.bullets.remove(
                     bullet
                 )
+
+                took_damage = self.player.take_damage(now)
+
+                if not took_damage:
+                    continue
 
                 if self.player.is_dead():
 
                     self.running = False
                     self.is_victory = False
-                    self.end_time = pygame.time.get_ticks()
+                    self.end_time = now
 
     def handle_boss_collision(self):
 
@@ -150,6 +155,32 @@ class Game:
                     self.end_time = now
                     break
 
+    def handle_player_boss_contact(self):
+
+        if self.boss is None:
+            return
+
+        player_rect = pygame.Rect(
+            self.player.x,
+            self.player.y,
+            self.player.WIDTH,
+            self.player.HEIGHT
+        )
+        boss_rect = self.boss.get_rect()
+
+        if not player_rect.colliderect(boss_rect):
+            return
+
+        now = pygame.time.get_ticks()
+        took_damage = self.player.take_damage(now)
+        if not took_damage:
+            return
+
+        if self.player.is_dead():
+            self.running = False
+            self.is_victory = False
+            self.end_time = now
+
     def update_hit_effects(self):
 
         now = pygame.time.get_ticks()
@@ -169,7 +200,7 @@ class Game:
         self.player_bullet_manager.update()
 
         elapsed_seconds = self.get_elapsed_seconds()
-        difficulty_scale = min(5, 1 + (elapsed_seconds // 20))
+        difficulty_scale = min(10, 1 + (elapsed_seconds // 20))
         spawn_interval = max(8, 40 - difficulty_scale * 2)
         bullets_per_wave = min(10, 1 + (difficulty_scale // 2))
 
@@ -191,6 +222,7 @@ class Game:
             self.shoot_cooldown = 16
 
         self.handle_boss_collision()
+        self.handle_player_boss_contact()
         self.update_hit_effects()
         self.handle_collision()
 

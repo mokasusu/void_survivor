@@ -1,4 +1,4 @@
-import pygame
+﻿import pygame
 
 from scenes.menu_scene import MenuScene
 from config.settings import WIDTH
@@ -44,7 +44,7 @@ class GuideScene:
         texts = [
             "GUIDE",
             "",
-            "Use UP/DOWN arrow keys to move",
+            "Use Arrow Keys or W/A/S/D to move",
             "Use SPACE to shoot",
             "",
             "Press ESC to go back"
