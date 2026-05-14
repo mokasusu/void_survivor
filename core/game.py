@@ -20,7 +20,7 @@ from core.assets import load_image
 
 class Game:
 
-    def __init__(self, mode="survival"):
+    def __init__(self, mode="survival", controller=None):
 
         self.mode = mode
 
@@ -30,7 +30,7 @@ class Game:
         )
         self.boss = Boss() if self.mode == "boss" else None
 
-        self.controller = HumanController()
+        self.controller = controller or HumanController()
 
         self.bullet_manager = BulletManager()
         self.player_bullet_manager = PlayerBulletManager()
@@ -163,6 +163,13 @@ class Game:
 
         action = self.controller.get_action()
 
+        self.update_with_action(
+            action,
+            self.controller.is_shooting()
+        )
+
+    def update_with_action(self, action, is_shooting):
+
         self.player.update(action)
 
         self.bullet_manager.update()
@@ -185,7 +192,7 @@ class Game:
         if self.shoot_cooldown > 0:
             self.shoot_cooldown -= 1
 
-        if self.controller.is_shooting() and self.shoot_cooldown == 0:
+        if is_shooting and self.shoot_cooldown == 0:
             shoot_x, shoot_y = self.player.get_shoot_origin()
             self.player_bullet_manager.shoot(shoot_x, shoot_y)
             self.shoot_cooldown = 16
@@ -193,6 +200,34 @@ class Game:
         self.handle_boss_collision()
         self.update_hit_effects()
         self.handle_collision()
+
+    def get_observation(self, max_bullets=5):
+
+        bullets = sorted(
+            self.bullet_manager.bullets,
+            key=lambda b: abs(b.x - self.player.x)
+        )
+        features = []
+
+        player_y = self.player.y / max(1, HEIGHT)
+        features.append(player_y)
+
+        for bullet in bullets[:max_bullets]:
+            features.append(bullet.x / max(1, WIDTH))
+            features.append(bullet.y / max(1, HEIGHT))
+            features.append(bullet.speed / 12)
+
+        missing = max_bullets - min(max_bullets, len(bullets))
+        for _ in range(missing):
+            features.extend([0.0, 0.0, 0.0])
+
+        if self.boss is not None:
+            boss_ratio = 0 if self.boss.max_health <= 0 else self.boss.health / self.boss.max_health
+            features.append(boss_ratio)
+        else:
+            features.append(0.0)
+
+        return features
 
     def draw(self, screen):
 
