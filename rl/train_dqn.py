@@ -1,3 +1,4 @@
+import time
 import torch
 
 from rl.env import VoidSurvivorEnv
@@ -9,11 +10,18 @@ from rl.agent import DQNAgent
 def train(config=None):
 
     cfg = config or DQNConfig()
-    env = VoidSurvivorEnv(mode=cfg.mode, render=cfg.render, max_steps=cfg.max_steps)
+    env = VoidSurvivorEnv(
+        mode=cfg.mode,
+        render=cfg.render,
+        max_steps=cfg.max_steps,
+        render_fps=cfg.render_fps
+    )
     state_dim = len(env.reset())
     action_dim = len(env.ACTIONS)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+    
     agent = DQNAgent(state_dim, action_dim, device, lr=cfg.lr, gamma=cfg.gamma)
     replay = ReplayBuffer(cfg.buffer_size)
 
@@ -46,6 +54,9 @@ def train(config=None):
                 break
 
         print(f"Episode {episode + 1}/{cfg.episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.3f}")
+
+        if cfg.episode_delay > 0:
+            time.sleep(cfg.episode_delay)
 
     torch.save(agent.policy_net.state_dict(), f"dqn_{cfg.mode}.pth")
     env.close()

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class DQNConfig:
 
-    mode: str = "survival"
+    mode: str = "boss"
     episodes: int = 300
     gamma: float = 0.99
     lr: float = 1e-3
@@ -15,4 +15,6 @@ class DQNConfig:
     epsilon_final: float = 0.05
     epsilon_decay: int = 20000
     max_steps: int = 5000
-    render: bool = False
+    render: bool = True
+    episode_delay: float = 2
+    render_fps: int = 120

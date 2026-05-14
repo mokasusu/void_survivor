@@ -20,17 +20,19 @@ class VoidSurvivorEnv:
         5: (Action.DOWN, True),
     }
 
-    def __init__(self, mode="survival", render=False, max_steps=5000, encoder=None, reward_shaper=None):
+    def __init__(self, mode="survival", render=False, max_steps=5000, render_fps=60, encoder=None, reward_shaper=None):
 
         self.mode = mode
         self.render_enabled = render
         self.max_steps = max_steps
+        self.render_fps = render_fps
 
         if not self.render_enabled:
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
         pygame.init()
         pygame.display.set_mode((WIDTH, HEIGHT))
+        self.clock = pygame.time.Clock() if self.render_enabled else None
 
         self.game = Game(mode=self.mode)
         self.steps = 0
@@ -62,8 +64,15 @@ class VoidSurvivorEnv:
         }
 
         if self.render_enabled:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.game.running = False
+
             self.game.draw(pygame.display.get_surface())
             pygame.display.flip()
+
+            if self.clock:
+                self.clock.tick(self.render_fps)
 
         return observation, reward, done, info
 
