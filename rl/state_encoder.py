@@ -1,6 +1,6 @@
 class StateEncoder:
 
-    def __init__(self, max_bullets=5):
+    def __init__(self, max_bullets=300):
         self.max_bullets = max_bullets
 
     def encode(self, game):

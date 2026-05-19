@@ -43,6 +43,8 @@ class Game:
         self.running = True
         self.is_victory = False
 
+        self.player_hit_count = 0
+
         self.start_time = pygame.time.get_ticks()
         self.end_time = None
         self.background = load_image(
@@ -120,6 +122,7 @@ class Game:
                     bullet
                 )
 
+                self.player_hit_count += 1
                 took_damage = self.player.take_damage(now)
 
                 if not took_damage:
@@ -254,10 +257,12 @@ class Game:
             features.extend([0.0, 0.0, 0.0])
 
         if self.boss is not None:
+            boss_x = self.boss.x / max(1, WIDTH)
+            boss_y = self.boss.y / max(1, HEIGHT)
             boss_ratio = 0 if self.boss.max_health <= 0 else self.boss.health / self.boss.max_health
-            features.append(boss_ratio)
+            features.extend([boss_x, boss_y, boss_ratio])
         else:
-            features.append(0.0)
+            features.extend([0.0, 0.0, 0.0])
 
         return features
 
@@ -320,6 +325,8 @@ class Game:
 
         self.running = True
         self.is_victory = False
+
+        self.player_hit_count = 0
 
         self.start_time = pygame.time.get_ticks()
         self.end_time = None

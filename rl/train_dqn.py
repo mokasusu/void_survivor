@@ -12,6 +12,7 @@ from rl.env import VoidSurvivorEnv
 from rl.config import DQNConfig
 from rl.replay_buffer import ReplayBuffer
 from rl.agent import DQNAgent
+from rl.state_encoder import StateEncoder
 
 
 def _build_run_dir(cfg: DQNConfig) -> Path:
@@ -81,7 +82,8 @@ def train(config=None):
         mode=cfg.mode,
         render=cfg.render,
         max_steps=cfg.max_steps,
-        render_fps=cfg.render_fps
+        render_fps=cfg.render_fps,
+        encoder=StateEncoder(max_bullets=cfg.max_bullets)
     )
     state_dim = len(env.reset())
     action_dim = len(env.ACTIONS)

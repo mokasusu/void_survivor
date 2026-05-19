@@ -7,11 +7,13 @@ class RewardShaper:
         self.prev_health = None
         self.prev_boss_health = None
         self.prev_min_bullet_dist = None
+        self.prev_hit_count = None
 
     def reset(self, game):
         self.prev_health = game.player.health
         self.prev_boss_health = game.boss.health if game.boss else None
         self.prev_min_bullet_dist = None
+        self.prev_hit_count = game.player_hit_count
 
     def compute(self, game):
         reward = 0.0
@@ -46,16 +48,20 @@ class RewardShaper:
             self.prev_min_bullet_dist = None
 
         if self.prev_health is not None and game.player.health < self.prev_health:
-            reward -= 1.0
+            reward -= 50.0
+
+        if self.prev_hit_count is not None and game.player_hit_count > self.prev_hit_count:
+            reward -= 5.0
 
         if game.boss is not None and self.prev_boss_health is not None:
             if game.boss.health < self.prev_boss_health:
                 reward += 1.0
 
         if not game.running:
-            reward += 10.0 if game.is_victory else -10.0
+            reward += 100.0 if game.is_victory else -50.0
 
         self.prev_health = game.player.health
         self.prev_boss_health = game.boss.health if game.boss else None
+        self.prev_hit_count = game.player_hit_count
 
         return reward

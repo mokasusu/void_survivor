@@ -5,7 +5,7 @@ from dataclasses import dataclass
 class DQNConfig:
 
     mode: str = "boss"
-    episodes: int = 2000
+    episodes: int = 1000
     gamma: float = 0.99
     lr: float = 1e-3
     batch_size: int = 64
@@ -23,3 +23,4 @@ class DQNConfig:
     resume_path: str | None = None
     save_every_episodes: int = 1
     moving_avg_window: int = 20
+    max_bullets: int = 300
