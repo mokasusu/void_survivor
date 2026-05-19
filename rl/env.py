@@ -15,9 +15,13 @@ class VoidSurvivorEnv:
         0: (Action.IDLE, False),
         1: (Action.UP, False),
         2: (Action.DOWN, False),
-        3: (Action.IDLE, True),
-        4: (Action.UP, True),
-        5: (Action.DOWN, True),
+        3: (Action.LEFT, False),
+        4: (Action.RIGHT, False),
+        5: (Action.IDLE, True),
+        6: (Action.UP, True),
+        7: (Action.DOWN, True),
+        8: (Action.LEFT, True),
+        9: (Action.RIGHT, True),
     }
 
     def __init__(self, mode="survival", render=False, max_steps=5000, render_fps=60, encoder=None, reward_shaper=None):
@@ -60,6 +64,7 @@ class VoidSurvivorEnv:
         observation = self.encoder.encode(self.game)
         info = {
             "survival_time": self.game.get_survival_time(),
+            "elapsed_seconds": self.game.get_elapsed_seconds(),
             "is_victory": self.game.is_victory
         }
 

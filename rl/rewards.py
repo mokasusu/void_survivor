@@ -16,10 +16,10 @@ class RewardShaper:
 
         if game.boss is not None and self.prev_boss_health is not None:
             if game.boss.health < self.prev_boss_health:
-                reward += 0.2
+                reward += 1.0
 
         if not game.running:
-            reward += 5.0 if game.is_victory else -5.0
+            reward += 10.0 if game.is_victory else -10.0
 
         self.prev_health = game.player.health
         self.prev_boss_health = game.boss.health if game.boss else None

@@ -37,7 +37,9 @@ class DQNAgent:
         next_states = torch.tensor(next_states, dtype=torch.float32, device=self.device)
         dones = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
 
-        q_values = self.policy_net(states).gather(1, actions)
+        all_q_values = self.policy_net(states)
+        avg_q_value = float(all_q_values.mean().item())
+        q_values = all_q_values.gather(1, actions)
         with torch.no_grad():
             next_q_values = self.target_net(next_states).max(1, keepdim=True)[0]
             target = rewards + (1 - dones) * self.gamma * next_q_values
@@ -47,7 +49,7 @@ class DQNAgent:
         loss.backward()
         self.optimizer.step()
 
-        return loss.item()
+        return loss.item(), avg_q_value
 
     def sync_target(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
