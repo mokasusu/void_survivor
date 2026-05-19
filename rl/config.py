@@ -5,7 +5,7 @@ from dataclasses import dataclass
 class DQNConfig:
 
     mode: str = "boss"
-    episodes: int = 300
+    episodes: int = 2000
     gamma: float = 0.99
     lr: float = 1e-3
     batch_size: int = 64
