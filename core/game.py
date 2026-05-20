@@ -56,6 +56,7 @@ class Game:
             (48, 48)
         )
         self.hit_effects = []
+        self.episode_label = None
 
     def draw_info_gradient(self, screen):
 
@@ -312,6 +313,15 @@ class Game:
                 self.boss.health,
                 self.boss.max_health
             )
+
+        self.ui.draw_episode_label(
+            screen,
+            self.episode_label
+        )
+
+    def set_episode_label(self, label):
+
+        self.episode_label = label
 
     def reset(self):
 

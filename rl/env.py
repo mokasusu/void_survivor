@@ -51,6 +51,10 @@ class VoidSurvivorEnv:
         self.reward_shaper.reset(self.game)
         return self.encoder.encode(self.game)
 
+    def set_episode_label(self, label):
+
+        self.game.set_episode_label(label)
+
     def step(self, action_index):
 
         action, is_shooting = self.ACTIONS.get(action_index, (Action.IDLE, False))

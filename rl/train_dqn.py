@@ -87,6 +87,20 @@ def train(config=None):
             encoder=StateEncoder(max_bullets=cfg.max_bullets)
         )
 
+    def _write_meta(meta_file: Path, episode_num: int, steps: int, best_episode: int, best_score: float):
+        with meta_file.open("w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "last_episode": episode_num,
+                    "steps_done": steps,
+                    "best_episode": best_episode,
+                    "best_moving_avg_reward": best_score
+                },
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+
     env = _make_env(cfg.render)
     state_dim = len(env.reset())
     action_dim = len(env.ACTIONS)
@@ -106,6 +120,7 @@ def train(config=None):
             run_dir = resume_path.parent
     run_dir.mkdir(parents=True, exist_ok=True)
     last_ckpt_path = run_dir / "last.pt"
+    best_ckpt_path = run_dir / "best.pt"
     meta_path = run_dir / "meta.json"
     metrics_csv_path = run_dir / "metrics.csv"
     plots_dir = run_dir / "plots"
@@ -123,6 +138,8 @@ def train(config=None):
     logged_avg_qs = []
     logged_steps = []
     logged_elapsed_seconds = []
+    best_moving_avg_reward = float("-inf")
+    best_episode = 0
 
     if cfg.resume_path:
         resume_path = Path(cfg.resume_path)
@@ -145,6 +162,10 @@ def train(config=None):
             if render_this_episode != env.render_enabled:
                 env.close()
                 env = _make_env(render_this_episode)
+
+            env.set_episode_label(
+                f"Episode {episode + 1}/{cfg.episodes}"
+            )
 
             state = env.reset()
             episode_reward = 0.0
@@ -236,23 +257,25 @@ def train(config=None):
             logged_steps.append(episode_steps)
             logged_elapsed_seconds.append(elapsed_seconds)
 
+            if moving_avg_reward > best_moving_avg_reward:
+                best_moving_avg_reward = moving_avg_reward
+                best_episode = episode + 1
+                _save_checkpoint(best_ckpt_path, agent, replay, cfg, episode + 1, steps_done)
+
             if (episode + 1) % cfg.save_every_episodes == 0:
                 _save_checkpoint(last_ckpt_path, agent, replay, cfg, episode + 1, steps_done)
-                with meta_path.open("w", encoding="utf-8") as f:
-                    json.dump({"last_episode": episode + 1, "steps_done": steps_done}, f, ensure_ascii=False, indent=2)
+                _write_meta(meta_path, episode + 1, steps_done, best_episode, best_moving_avg_reward)
 
             if cfg.episode_delay > 0:
                 time.sleep(cfg.episode_delay)
     except KeyboardInterrupt:
         _save_checkpoint(last_ckpt_path, agent, replay, cfg, episode + 1, steps_done)
-        with meta_path.open("w", encoding="utf-8") as f:
-            json.dump({"last_episode": episode + 1, "steps_done": steps_done}, f, ensure_ascii=False, indent=2)
+        _write_meta(meta_path, episode + 1, steps_done, best_episode, best_moving_avg_reward)
         _save_plots(plots_dir, logged_episodes, logged_rewards, logged_moving_avg, logged_losses, logged_avg_qs, logged_steps, logged_elapsed_seconds)
         print("Interrupted. Checkpoint saved.")
     finally:
         _save_checkpoint(last_ckpt_path, agent, replay, cfg, episode + 1, steps_done)
-        with meta_path.open("w", encoding="utf-8") as f:
-            json.dump({"last_episode": episode + 1, "steps_done": steps_done}, f, ensure_ascii=False, indent=2)
+        _write_meta(meta_path, episode + 1, steps_done, best_episode, best_moving_avg_reward)
         _save_plots(plots_dir, logged_episodes, logged_rewards, logged_moving_avg, logged_losses, logged_avg_qs, logged_steps, logged_elapsed_seconds)
         env.close()
 
