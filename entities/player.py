@@ -25,8 +25,8 @@ class Player:
 
         self.speed = 6
 
-        self.max_health = 5
-        self.health = 5
+        self.max_health = 3
+        self.health = 3
         self.invulnerable_until = 0
         self.sprite = load_image(
             "player.png",

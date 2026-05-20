@@ -45,7 +45,7 @@ class RewardShaper:
                 near_threshold_sq = near_threshold * near_threshold
 
                 if self.prev_min_bullet_dist < near_threshold_sq:
-                    reward += dist_delta * 0.00001
+                    reward += dist_delta * 0.00005
 
             self.prev_min_bullet_dist = min_dist
 

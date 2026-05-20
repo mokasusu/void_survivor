@@ -46,7 +46,7 @@ class DQNConfig:
     batch_size: int = _get_env("DQN_BATCH_SIZE", int, 64)
     buffer_size: int = _get_env("DQN_BUFFER_SIZE", int, 50000)
     target_update: int = _get_env("DQN_TARGET_UPDATE", int, 500)
-    epsilon_start: float = _get_env("DQN_EPSILON_START", float, 1.0)
+    epsilon_start: float = _get_env("DQN_EPSILON_START", float, 0.1)
     epsilon_final: float = _get_env("DQN_EPSILON_FINAL", float, 0.05)
     epsilon_decay: int = _get_env("DQN_EPSILON_DECAY", int, 20000)
     max_steps: int = _get_env("DQN_MAX_STEPS", int, 5000)
