@@ -78,13 +78,16 @@ def _save_plots(plot_dir: Path, episodes, rewards, moving_avg, losses, avg_qs, s
 def train(config=None):
 
     cfg = config or DQNConfig()
-    env = VoidSurvivorEnv(
-        mode=cfg.mode,
-        render=cfg.render,
-        max_steps=cfg.max_steps,
-        render_fps=cfg.render_fps,
-        encoder=StateEncoder(max_bullets=cfg.max_bullets)
-    )
+    def _make_env(render_enabled: bool):
+        return VoidSurvivorEnv(
+            mode=cfg.mode,
+            render=render_enabled,
+            max_steps=cfg.max_steps,
+            render_fps=cfg.render_fps,
+            encoder=StateEncoder(max_bullets=cfg.max_bullets)
+        )
+
+    env = _make_env(cfg.render)
     state_dim = len(env.reset())
     action_dim = len(env.ACTIONS)
 
@@ -132,6 +135,17 @@ def train(config=None):
 
     try:
         for episode in range(start_episode, cfg.episodes):
+            render_this_episode = False
+            if cfg.render:
+                if cfg.render_every and cfg.render_every > 0:
+                    render_this_episode = ((episode + 1) % cfg.render_every) == 0
+                else:
+                    render_this_episode = True
+
+            if render_this_episode != env.render_enabled:
+                env.close()
+                env = _make_env(render_this_episode)
+
             state = env.reset()
             episode_reward = 0.0
             episode_loss_sum = 0.0
@@ -157,11 +171,12 @@ def train(config=None):
                 episode_steps += 1
 
                 if len(replay) >= cfg.batch_size:
-                    batch = replay.sample(cfg.batch_size)
-                    loss_value, avg_q_value = agent.train_step(batch)
-                    episode_loss_sum += loss_value
-                    episode_q_sum += avg_q_value
-                    episode_train_steps += 1
+                    if cfg.train_every <= 1 or (steps_done % cfg.train_every == 0):
+                        batch = replay.sample(cfg.batch_size)
+                        loss_value, avg_q_value = agent.train_step(batch)
+                        episode_loss_sum += loss_value
+                        episode_q_sum += avg_q_value
+                        episode_train_steps += 1
 
                 if steps_done % cfg.target_update == 0:
                     agent.sync_target()

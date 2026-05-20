@@ -238,10 +238,14 @@ class Game:
 
     def get_observation(self, max_bullets=5):
 
-        bullets = sorted(
-            self.bullet_manager.bullets,
-            key=lambda b: abs(b.x - self.player.x)
-        )
+        bullets_list = self.bullet_manager.bullets
+        if max_bullets is None or max_bullets >= len(bullets_list):
+            bullets = bullets_list
+        else:
+            bullets = sorted(
+                bullets_list,
+                key=lambda b: abs(b.x - self.player.x)
+            )
         features = []
 
         player_y = self.player.y / max(1, HEIGHT)

@@ -1,67 +1,95 @@
-import math
-
-
 class RewardShaper:
 
     def __init__(self):
         self.prev_health = None
         self.prev_boss_health = None
         self.prev_min_bullet_dist = None
-        self.prev_hit_count = None
 
     def reset(self, game):
         self.prev_health = game.player.health
         self.prev_boss_health = game.boss.health if game.boss else None
         self.prev_min_bullet_dist = None
-        self.prev_hit_count = game.player_hit_count
 
     def compute(self, game):
         reward = 0.0
 
-        # sống mỗi frame
-        reward += 0.01
+        # =========================
+        # Survival reward
+        # =========================
+        reward += 0.02
 
-        # dodge gần đạn
+        # =========================
+        # Bullet dodge reward
+        # =========================
         bullets = game.bullet_manager.bullets if game.bullet_manager else []
+
         if bullets:
             player_cx = game.player.x + (game.player.WIDTH / 2)
             player_cy = game.player.y + (game.player.HEIGHT / 2)
-            min_dist = None
+
+            min_dist = float("inf")
+
             for bullet in bullets:
                 dx = bullet.x - player_cx
                 dy = bullet.y - player_cy
-                dist = math.hypot(dx, dy)
-                if min_dist is None or dist < min_dist:
-                    min_dist = dist
+                dist_sq = dx * dx + dy * dy
 
-            near_threshold = 120.0
-            if (
-                min_dist is not None
-                and self.prev_min_bullet_dist is not None
-                and self.prev_min_bullet_dist < near_threshold
-                and min_dist > self.prev_min_bullet_dist + 5
-            ):
-                reward += 0.05
+                if dist_sq < min_dist:
+                    min_dist = dist_sq
+
+            if self.prev_min_bullet_dist is not None:
+                # Reward moving away from nearby bullets
+                dist_delta = min_dist - self.prev_min_bullet_dist
+
+                near_threshold = 150.0
+                near_threshold_sq = near_threshold * near_threshold
+
+                if self.prev_min_bullet_dist < near_threshold_sq:
+                    reward += dist_delta * 0.00001
 
             self.prev_min_bullet_dist = min_dist
+
         else:
             self.prev_min_bullet_dist = None
 
-        if self.prev_health is not None and game.player.health < self.prev_health:
-            reward -= 50.0
+        # =========================
+        # Damage taken penalty
+        # =========================
+        if self.prev_health is not None:
+            health_loss = self.prev_health - game.player.health
 
-        if self.prev_hit_count is not None and game.player_hit_count > self.prev_hit_count:
-            reward -= 5.0
+            if health_loss > 0:
+                reward -= health_loss * 3.0
 
+        # =========================
+        # Boss damage reward
+        # =========================
         if game.boss is not None and self.prev_boss_health is not None:
-            if game.boss.health < self.prev_boss_health:
-                reward += 1.0
+            boss_damage = self.prev_boss_health - game.boss.health
 
+            if boss_damage > 0:
+                reward += boss_damage * 2.0
+
+        # =========================
+        # Win / lose reward
+        # =========================
         if not game.running:
-            reward += 100.0 if game.is_victory else -50.0
+            if game.is_victory:
+                reward += 30.0
+            else:
+                reward -= 10.0
 
+        # =========================
+        # Clamp reward (stability)
+        # =========================
+        reward = max(min(reward, 10.0), -10.0)
+
+        # =========================
+        # Update previous state
+        # =========================
         self.prev_health = game.player.health
-        self.prev_boss_health = game.boss.health if game.boss else None
-        self.prev_hit_count = game.player_hit_count
+        self.prev_boss_health = (
+            game.boss.health if game.boss else None
+        )
 
         return reward

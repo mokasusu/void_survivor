@@ -16,11 +16,13 @@ class DQNConfig:
     epsilon_decay: int = 20000
     max_steps: int = 5000
     render: bool = True
-    episode_delay: float = 0.5
-    render_fps: int = 360
+    render_every: int = 0
+    episode_delay: float = 0
+    render_fps: int = 60
     models_dir: str = "models"
     run_name: str | None = None
-    resume_path: str | None = None
+    resume_path: str | None = "models/20260519_235235/last.pt"
     save_every_episodes: int = 1
     moving_avg_window: int = 20
     max_bullets: int = 300
+    train_every: int = 4
