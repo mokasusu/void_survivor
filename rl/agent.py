@@ -7,10 +7,11 @@ from rl.network import DQN
 
 class DQNAgent:
 
-    def __init__(self, state_dim, action_dim, device, lr=1e-3, gamma=0.99):
+    def __init__(self, state_dim, action_dim, device, lr=1e-3, gamma=0.99, grad_clip=None):
         self.device = device
         self.gamma = gamma
         self.action_dim = action_dim
+        self.grad_clip = grad_clip
 
         self.policy_net = DQN(state_dim, action_dim).to(device)
         self.target_net = DQN(state_dim, action_dim).to(device)
@@ -41,12 +42,15 @@ class DQNAgent:
         avg_q_value = float(all_q_values.mean().item())
         q_values = all_q_values.gather(1, actions)
         with torch.no_grad():
-            next_q_values = self.target_net(next_states).max(1, keepdim=True)[0]
+            next_actions = self.policy_net(next_states).argmax(1, keepdim=True)
+            next_q_values = self.target_net(next_states).gather(1, next_actions)
             target = rewards + (1 - dones) * self.gamma * next_q_values
 
         loss = nn.functional.smooth_l1_loss(q_values, target)
         self.optimizer.zero_grad()
         loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), self.grad_clip)
         self.optimizer.step()
 
         return loss.item(), avg_q_value

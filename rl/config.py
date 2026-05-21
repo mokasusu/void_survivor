@@ -66,3 +66,4 @@ class DQNConfig:
     moving_avg_window: int = _get_env("DQN_MOVING_AVG_WINDOW", int, 20)
     max_bullets: int = _get_env("DQN_MAX_BULLETS", int, 300)
     train_every: int = _get_env("DQN_TRAIN_EVERY", int, 4)
+    grad_clip: float | None = _get_env("DQN_GRAD_CLIP", float, 5.0)

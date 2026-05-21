@@ -122,7 +122,14 @@ def train(config=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
     
-    agent = DQNAgent(state_dim, action_dim, device, lr=cfg.lr, gamma=cfg.gamma)
+    agent = DQNAgent(
+        state_dim,
+        action_dim,
+        device,
+        lr=cfg.lr,
+        gamma=cfg.gamma,
+        grad_clip=cfg.grad_clip
+    )
     replay = ReplayBuffer(cfg.buffer_size)
 
     run_dir = _build_run_dir(cfg)
