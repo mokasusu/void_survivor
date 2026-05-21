@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 import time
@@ -75,6 +76,19 @@ def _save_plots(plot_dir: Path, episodes, rewards, moving_avg, losses, avg_qs, s
     _plot_metric(episodes, elapsed_seconds, "Elapsed Seconds per Episode", "Seconds", "elapsed_seconds.png")
 
 
+def _resolve_resume_path(cfg: DQNConfig) -> Path | None:
+    if not cfg.resume_path:
+        return None
+
+    path = Path(cfg.resume_path)
+    if not path.is_absolute() and not path.exists():
+        candidate = Path(cfg.models_dir) / path
+        if candidate.exists():
+            path = candidate
+
+    return path if path.exists() else None
+
+
 def train(config=None):
 
     cfg = config or DQNConfig()
@@ -112,12 +126,6 @@ def train(config=None):
     replay = ReplayBuffer(cfg.buffer_size)
 
     run_dir = _build_run_dir(cfg)
-    if cfg.resume_path:
-        resume_path = Path(cfg.resume_path)
-        if resume_path.is_dir():
-            run_dir = resume_path
-        else:
-            run_dir = resume_path.parent
     run_dir.mkdir(parents=True, exist_ok=True)
     last_ckpt_path = run_dir / "last.pt"
     best_ckpt_path = run_dir / "best.pt"
@@ -141,8 +149,8 @@ def train(config=None):
     best_moving_avg_reward = float("-inf")
     best_episode = 0
 
-    if cfg.resume_path:
-        resume_path = Path(cfg.resume_path)
+    resume_path = _resolve_resume_path(cfg)
+    if resume_path:
         if resume_path.is_dir():
             resume_path = resume_path / "last.pt"
         if resume_path.exists():
@@ -281,4 +289,11 @@ def train(config=None):
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("checkpoint", nargs="?", default=None, help="Path to checkpoint or run directory")
+    args = parser.parse_args()
+
+    cfg = DQNConfig()
+    if args.checkpoint:
+        cfg.resume_path = args.checkpoint
+    train(cfg)

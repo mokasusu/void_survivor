@@ -1,10 +1,15 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
-load_dotenv()
+_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+if _ENV_PATH.exists():
+    load_dotenv(_ENV_PATH)
+else:
+    load_dotenv()
 
 
 def _get_env(name, cast, default):
@@ -56,7 +61,7 @@ class DQNConfig:
     render_fps: int = _get_env("DQN_RENDER_FPS", int, 60)
     models_dir: str = _get_env("DQN_MODELS_DIR", str, "models")
     run_name: str | None = _get_env_optional_str("DQN_RUN_NAME", None)
-    resume_path: str | None = _get_env_optional_str("DQN_RESUME_PATH", "models/20260519_235235/last.pt")
+    resume_path: str | None = _get_env_optional_str("DQN_RESUME_PATH", None)
     save_every_episodes: int = _get_env("DQN_SAVE_EVERY_EPISODES", int, 1)
     moving_avg_window: int = _get_env("DQN_MOVING_AVG_WINDOW", int, 20)
     max_bullets: int = _get_env("DQN_MAX_BULLETS", int, 300)
