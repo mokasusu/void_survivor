@@ -16,6 +16,23 @@ from rl.agent import DQNAgent
 from rl.state_encoder import StateEncoder
 
 
+REWARD_KEYS = [
+    "survival",
+    "time_pressure",
+    "danger",
+    "damage_penalty",
+    "boss_damage",
+    "win_loss",
+]
+
+
+def _format_reward_breakdown(breakdown: dict):
+    header = " | ".join(REWARD_KEYS)
+    values = " | ".join(
+        f"{breakdown.get(key, 0.0):.3f}" for key in REWARD_KEYS
+    )
+    return header, values
+
 def _build_run_dir(cfg: DQNConfig) -> Path:
     if cfg.run_name:
         return Path(cfg.models_dir) / cfg.mode / cfg.run_name
@@ -189,6 +206,7 @@ def train(config=None):
             episode_train_steps = 0
             episode_steps = 0
             action_counts = [0] * action_dim
+            reward_breakdown_sum = {key: 0.0 for key in REWARD_KEYS}
             last_info = None
 
             for _ in range(cfg.max_steps):
@@ -199,6 +217,9 @@ def train(config=None):
                 action_counts[action] += 1
                 next_state, reward, done, _ = env.step(action)
                 last_info = _
+                step_breakdown = _.get("reward_breakdown", {}) if _ else {}
+                for key in REWARD_KEYS:
+                    reward_breakdown_sum[key] += step_breakdown.get(key, 0.0)
                 replay.push(state, action, reward, next_state, done)
 
                 state = next_state
@@ -235,7 +256,7 @@ def train(config=None):
             )
 
             print(
-                "Episode {}/{} | Reward: {:.2f} | MA Reward: {:.2f} | Loss: {:.4f} | Avg Q: {:.4f} | Steps: {} | Survival: {} | Actions: {}".format(
+                "Episode {}/{}  Reward: {:.2f}  MA Reward: {:.2f}  Loss: {:.4f}  Avg Q: {:.4f}  Steps: {}  Survival: {}  Actions: {}".format(
                     episode + 1,
                     cfg.episodes,
                     episode_reward,
@@ -247,6 +268,13 @@ def train(config=None):
                     action_dist_str
                 )
             )
+
+            if episode == start_episode:
+                header, _ = _format_reward_breakdown(reward_breakdown_sum)
+                print(header)
+            _, values = _format_reward_breakdown(reward_breakdown_sum)
+            print(values)
+            print("")
 
             metrics_row = {
                 "episode": episode + 1,
@@ -261,6 +289,9 @@ def train(config=None):
             for idx, count in enumerate(action_counts):
                 metrics_row[f"action_{idx}_count"] = count
                 metrics_row[f"action_{idx}_pct"] = action_pcts[idx]
+
+            for key in REWARD_KEYS:
+                metrics_row[f"reward_{key}"] = reward_breakdown_sum[key]
 
             _append_metrics_csv(metrics_csv_path, metrics_row)
 

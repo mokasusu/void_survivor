@@ -63,13 +63,14 @@ class VoidSurvivorEnv:
         self.steps += 1
         done = not self.game.running or self.steps >= self.max_steps
 
-        reward = self.reward_shaper.compute(self.game)
+        reward, reward_breakdown = self.reward_shaper.compute(self.game)
 
         observation = self.encoder.encode(self.game)
         info = {
             "survival_time": self.game.get_survival_time(),
             "elapsed_seconds": self.game.get_elapsed_seconds(),
-            "is_victory": self.game.is_victory
+            "is_victory": self.game.is_victory,
+            "reward_breakdown": reward_breakdown
         }
 
         if self.render_enabled:

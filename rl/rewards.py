@@ -14,18 +14,43 @@ class RewardShaper:
         )
 
     def compute(self, game):
-
         reward = 0.0
+        breakdown = {
+            "survival": 0.0,
+            "time_pressure": 0.0,
+            "danger": 0.0,
+            "damage_penalty": 0.0,
+            "boss_damage": 0.0,
+            "win_loss": 0.0,
+        }
+
+        health_loss = 0
 
         # =========================
         # Survival reward
         # =========================
-        reward += 0.01
+        reward += 0.001
+        breakdown["survival"] += 0.001
 
         # =========================
         # Small time pressure
         # =========================
         reward -= 0.001
+        breakdown["time_pressure"] -= 0.001
+
+        # =========================
+        # Damage taken penalty
+        # =========================
+        if self.prev_health is not None:
+
+            health_loss = (
+                self.prev_health - game.player.health
+            )
+
+            if health_loss > 0:
+                penalty = health_loss * 4.0
+                reward -= penalty
+                breakdown["damage_penalty"] -= penalty
 
         # =========================
         # Bullet danger reward
@@ -50,20 +75,9 @@ class RewardShaper:
                     min_dist = dist
 
             # reward surviving in danger
-            if min_dist < 120:
+            if min_dist < 120 and health_loss == 0:
                 reward += 0.02
-
-        # =========================
-        # Damage taken penalty
-        # =========================
-        if self.prev_health is not None:
-
-            health_loss = (
-                self.prev_health - game.player.health
-            )
-
-            if health_loss > 0:
-                reward -= health_loss * 4.0
+                breakdown["danger"] += 0.02
 
         # =========================
         # Boss damage reward
@@ -79,7 +93,9 @@ class RewardShaper:
             )
 
             if boss_damage > 0:
-                reward += boss_damage * 2.0
+                gain = boss_damage * 2.0
+                reward += gain
+                breakdown["boss_damage"] += gain
 
         # =========================
         # Win / lose
@@ -88,13 +104,10 @@ class RewardShaper:
 
             if game.is_victory:
                 reward += 50.0
+                breakdown["win_loss"] += 50.0
             else:
                 reward -= 20.0
-
-        # =========================
-        # Clamp
-        # =========================
-        reward = max(min(reward, 10), -10)
+                breakdown["win_loss"] -= 20.0
 
         # =========================
         # Update
@@ -105,4 +118,4 @@ class RewardShaper:
             game.boss.health if game.boss else None
         )
 
-        return reward
+        return reward, breakdown

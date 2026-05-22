@@ -9,6 +9,24 @@ from rl.agent import DQNAgent
 from rl.state_encoder import StateEncoder
 
 
+REWARD_KEYS = [
+    "survival",
+    "time_pressure",
+    "danger",
+    "damage_penalty",
+    "boss_damage",
+    "win_loss",
+]
+
+
+def _format_reward_breakdown(breakdown: dict):
+    header = " | ".join(REWARD_KEYS)
+    values = " | ".join(
+        f"{breakdown.get(key, 0.0):.3f}" for key in REWARD_KEYS
+    )
+    return header, values
+
+
 def _resolve_checkpoint(path_value: str | None, models_dir: str):
     if not path_value:
         return None
@@ -73,6 +91,7 @@ def test(config=None, checkpoint_path: str | None = None, episodes: int = 5, ren
         state = env.reset()
         episode_reward = 0.0
         steps = 0
+        reward_breakdown_sum = {key: 0.0 for key in REWARD_KEYS}
         last_info = None
 
         for _ in range(cfg.max_steps):
@@ -80,6 +99,9 @@ def test(config=None, checkpoint_path: str | None = None, episodes: int = 5, ren
             next_state, reward, done, info = env.step(action)
             state = next_state
             episode_reward += reward
+            step_breakdown = info.get("reward_breakdown", {}) if info else {}
+            for key in REWARD_KEYS:
+                reward_breakdown_sum[key] += step_breakdown.get(key, 0.0)
             steps += 1
             last_info = info
             if done:
@@ -87,7 +109,7 @@ def test(config=None, checkpoint_path: str | None = None, episodes: int = 5, ren
 
         survival_time = last_info.get("survival_time", "00:00") if last_info else "00:00"
         print(
-            "Test Episode {}/{} | Reward: {:.2f} | Steps: {} | Survival: {}".format(
+            "Test Episode {}/{}  Reward: {:.2f}  Steps: {}  Survival: {}".format(
                 episode + 1,
                 episodes,
                 episode_reward,
@@ -95,6 +117,12 @@ def test(config=None, checkpoint_path: str | None = None, episodes: int = 5, ren
                 survival_time
             )
         )
+        if episode == 0:
+            header, _ = _format_reward_breakdown(reward_breakdown_sum)
+            print(header)
+        _, values = _format_reward_breakdown(reward_breakdown_sum)
+        print(values)
+        print("")
         total_rewards.append(episode_reward)
         total_steps.append(steps)
 
