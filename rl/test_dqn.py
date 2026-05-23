@@ -67,15 +67,17 @@ def test(config=None, checkpoint_path: str | None = None, episodes: int = 5, ren
     def _make_env(render_enabled: bool):
         return VoidSurvivorEnv(
             mode=cfg.mode,
+            difficulty=cfg.difficulty,
             render=render_enabled,
             max_steps=cfg.max_steps,
             render_fps=cfg.render_fps,
-            encoder=StateEncoder(max_bullets=cfg.max_bullets)
+            encoder=StateEncoder(max_bullets=cfg.max_bullets),
+            auto_fire=cfg.auto_fire
         )
 
     env = _make_env(render)
     state_dim = len(env.reset())
-    action_dim = len(env.ACTIONS)
+    action_dim = len(env.actions)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     agent = DQNAgent(state_dim, action_dim, device, lr=cfg.lr, gamma=cfg.gamma)

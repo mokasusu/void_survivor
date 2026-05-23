@@ -6,12 +6,14 @@ class RewardShaper:
     def __init__(self):
         self.prev_health = None
         self.prev_boss_health = None
+        self.prev_min_dist = None
 
     def reset(self, game):
         self.prev_health = game.player.health
         self.prev_boss_health = (
             game.boss.health if game.boss else None
         )
+        self.prev_min_dist = None
 
     def compute(self, game):
         reward = 0.0
@@ -24,7 +26,16 @@ class RewardShaper:
             "win_loss": 0.0,
         }
 
+        is_survival = game.mode == "survival"
+
         health_loss = 0
+
+        # =========================
+        # Survival reward (time alive)
+        # =========================
+        if is_survival and game.running:
+            reward += 0.02
+            breakdown["survival"] += 0.02
 
         # =========================
         # Damage taken penalty
@@ -62,16 +73,19 @@ class RewardShaper:
                 if dist < min_dist:
                     min_dist = dist
 
-            # reward surviving in danger
+            # reward escaping danger (moving away from closest bullet)
             if min_dist < 120 and health_loss == 0:
-                reward += 0.02
-                breakdown["danger"] += 0.02
+                if self.prev_min_dist is not None and min_dist > self.prev_min_dist:
+                    gain = 0.02 if is_survival else 0.02
+                    reward += gain
+                    breakdown["danger"] += gain
 
         # =========================
         # Boss damage reward
         # =========================
         if (
-            game.boss is not None
+            not is_survival
+            and game.boss is not None
             and self.prev_boss_health is not None
         ):
 
@@ -95,7 +109,7 @@ class RewardShaper:
                 breakdown["win_loss"] += 50.0
             else:
                 reward -= 20.0
-                breakdown["win_loss"] -= 5.0
+                breakdown["win_loss"] -= 20.0
 
         # =========================
         # Update
@@ -105,5 +119,6 @@ class RewardShaper:
         self.prev_boss_health = (
             game.boss.health if game.boss else None
         )
+        self.prev_min_dist = min_dist if bullets else None
 
         return reward, breakdown

@@ -106,16 +106,23 @@ def _resolve_resume_path(cfg: DQNConfig) -> Path | None:
     return path if path.exists() else None
 
 
+def _compute_epsilon(cfg: DQNConfig, steps_done: int) -> float:
+    return cfg.epsilon_final + (cfg.epsilon_start - cfg.epsilon_final) * \
+        max(0.0, (cfg.epsilon_decay - steps_done) / cfg.epsilon_decay)
+
+
 def train(config=None):
 
     cfg = config or DQNConfig()
     def _make_env(render_enabled: bool):
         return VoidSurvivorEnv(
             mode=cfg.mode,
+            difficulty=cfg.difficulty,
             render=render_enabled,
             max_steps=cfg.max_steps,
             render_fps=cfg.render_fps,
-            encoder=StateEncoder(max_bullets=cfg.max_bullets)
+            encoder=StateEncoder(max_bullets=cfg.max_bullets),
+            auto_fire=cfg.auto_fire
         )
 
     def _write_meta(meta_file: Path, episode_num: int, steps: int, best_episode: int, best_score: float):
@@ -134,7 +141,7 @@ def train(config=None):
 
     env = _make_env(cfg.render)
     state_dim = len(env.reset())
-    action_dim = len(env.ACTIONS)
+    action_dim = len(env.actions)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
@@ -178,9 +185,9 @@ def train(config=None):
         if resume_path.is_dir():
             resume_path = resume_path / "last.pt"
         if resume_path.exists():
-            payload = _load_checkpoint(resume_path, agent)
-            start_episode = int(payload.get("episode", 0))
-            steps_done = int(payload.get("steps_done", 0))
+            _load_checkpoint(resume_path, agent)
+            start_episode = 0
+            steps_done = 0
 
     try:
         for episode in range(start_episode, cfg.episodes):
@@ -209,9 +216,11 @@ def train(config=None):
             reward_breakdown_sum = {key: 0.0 for key in REWARD_KEYS}
             last_info = None
 
+            epsilon = _compute_epsilon(cfg, steps_done)
+            print(f"Epsilon: {epsilon:.4f}")
+
             for _ in range(cfg.max_steps):
-                epsilon = cfg.epsilon_final + (cfg.epsilon_start - cfg.epsilon_final) * \
-                    max(0.0, (cfg.epsilon_decay - steps_done) / cfg.epsilon_decay)
+                epsilon = _compute_epsilon(cfg, steps_done)
 
                 action = agent.select_action(state, epsilon)
                 action_counts[action] += 1

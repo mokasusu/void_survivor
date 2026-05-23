@@ -41,7 +41,7 @@ class MenuScene:
         button_step = 70
         menu_center_y = int((HEIGHT / 3 + HEIGHT) / 2)
         first_button_y = menu_center_y - (
-            (button_height * 4 + (button_step - button_height) * 3) // 2
+            (button_height * 5 + (button_step - button_height) * 4) // 2
         )
         button_x = (WIDTH - button_width) // 2
 
@@ -63,9 +63,18 @@ class MenuScene:
             self.font
         )
 
-        self.guide_button = Button(
+        self.difficulty_button = Button(
             button_x,
             first_button_y + button_step * 2,
+            button_width,
+            button_height,
+            "Difficulty",
+            self.font
+        )
+
+        self.guide_button = Button(
+            button_x,
+            first_button_y + button_step * 3,
             button_width,
             button_height,
             "Guide",
@@ -74,7 +83,7 @@ class MenuScene:
 
         self.exit_button = Button(
             button_x,
-            first_button_y + button_step * 3,
+            first_button_y + button_step * 4,
             button_width,
             button_height,
             "Exit",
@@ -84,6 +93,7 @@ class MenuScene:
         self.buttons = [
             self.play_button,
             self.mode_button,
+            self.difficulty_button,
             self.guide_button,
             self.exit_button
         ]
@@ -98,7 +108,8 @@ class MenuScene:
 
             self.game.current_scene = GameScene(
                 self.game,
-                mode=self.game.selected_mode
+                mode=self.game.selected_mode,
+                difficulty=self.game.selected_difficulty
             )
 
         elif self.selected_index == 1:
@@ -111,13 +122,21 @@ class MenuScene:
 
         elif self.selected_index == 2:
 
+            from scenes.difficulty_scene import DifficultyScene
+
+            self.game.current_scene = DifficultyScene(
+                self.game
+            )
+
+        elif self.selected_index == 3:
+
             from scenes.guide_scene import GuideScene
 
             self.game.current_scene = GuideScene(
                 self.game
             )
 
-        elif self.selected_index == 3:
+        elif self.selected_index == 4:
 
             self.game.running = False
 
@@ -153,7 +172,8 @@ class MenuScene:
 
             self.game.current_scene = GameScene(
                 self.game,
-                mode=self.game.selected_mode
+                mode=self.game.selected_mode,
+                difficulty=self.game.selected_difficulty
             )
 
         elif self.mode_button.is_clicked(event):
@@ -166,9 +186,19 @@ class MenuScene:
                 self.game
             )
 
-        elif self.guide_button.is_clicked(event):
+        elif self.difficulty_button.is_clicked(event):
 
             self.selected_index = 2
+
+            from scenes.difficulty_scene import DifficultyScene
+
+            self.game.current_scene = DifficultyScene(
+                self.game
+            )
+
+        elif self.guide_button.is_clicked(event):
+
+            self.selected_index = 3
 
             from scenes.guide_scene import GuideScene
 
@@ -178,7 +208,7 @@ class MenuScene:
 
         elif self.exit_button.is_clicked(event):
 
-            self.selected_index = 3
+            self.selected_index = 4
 
             self.game.running = False
 
@@ -189,6 +219,9 @@ class MenuScene:
             else "boss"
         )
         self.mode_button.text = f"Mode: {mode_label}"
+
+        difficulty_label = self.game.selected_difficulty
+        self.difficulty_button.text = f"Difficulty: {difficulty_label}"
 
     def draw(self, screen):
 

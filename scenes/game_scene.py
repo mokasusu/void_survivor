@@ -8,11 +8,11 @@ from scenes.menu_scene import MenuScene
 
 class GameScene:
 
-    def __init__(self, main_game, mode="survival"):
+    def __init__(self, main_game, mode="survival", difficulty="medium"):
 
         self.main_game = main_game
 
-        self.game = Game(mode=mode)
+        self.game = Game(mode=mode, difficulty=difficulty)
 
         self.font = pygame.font.SysFont(
             [

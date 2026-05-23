@@ -45,6 +45,7 @@ def _get_env_optional_str(name, default=None):
 class DQNConfig:
 
     mode: str = _get_env("DQN_MODE", str, "boss")
+    difficulty: str = _get_env("DQN_DIFFICULTY", str, "medium")
     episodes: int = _get_env("DQN_EPISODES", int, 1000)
     gamma: float = _get_env("DQN_GAMMA", float, 0.99)
     lr: float = _get_env("DQN_LR", float, 1e-3)
@@ -67,3 +68,4 @@ class DQNConfig:
     max_bullets: int = _get_env("DQN_MAX_BULLETS", int, 300)
     train_every: int = _get_env("DQN_TRAIN_EVERY", int, 4)
     grad_clip: float | None = _get_env("DQN_GRAD_CLIP", float, 5.0)
+    auto_fire: bool = _get_env("DQN_AUTOFIRE", bool, True)

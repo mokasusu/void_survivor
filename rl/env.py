@@ -11,25 +11,14 @@ from rl.state_encoder import StateEncoder
 
 class VoidSurvivorEnv:
 
-    ACTIONS = {
-        0: (Action.IDLE, False),
-        1: (Action.UP, False),
-        2: (Action.DOWN, False),
-        3: (Action.LEFT, False),
-        4: (Action.RIGHT, False),
-        5: (Action.IDLE, True),
-        6: (Action.UP, True),
-        7: (Action.DOWN, True),
-        8: (Action.LEFT, True),
-        9: (Action.RIGHT, True),
-    }
-
-    def __init__(self, mode="survival", render=False, max_steps=5000, render_fps=60, encoder=None, reward_shaper=None):
+    def __init__(self, mode="survival", difficulty="medium", render=False, max_steps=5000, render_fps=60, encoder=None, reward_shaper=None, auto_fire=True):
 
         self.mode = mode
         self.render_enabled = render
         self.max_steps = max_steps
         self.render_fps = render_fps
+        self.difficulty = difficulty
+        self.auto_fire = auto_fire
 
         if not self.render_enabled:
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -38,11 +27,48 @@ class VoidSurvivorEnv:
         pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock() if self.render_enabled else None
 
-        self.game = Game(mode=self.mode)
+        self.game = Game(mode=self.mode, difficulty=self.difficulty)
         self.steps = 0
         self.encoder = encoder or StateEncoder()
         self.reward_shaper = reward_shaper or RewardShaper()
         self.reward_shaper.reset(self.game)
+        self.actions = self._build_actions()
+
+    def _build_actions(self):
+
+        if self.auto_fire:
+            return {
+                0: (Action.IDLE, True),
+                1: (Action.UP, True),
+                2: (Action.DOWN, True),
+                3: (Action.LEFT, True),
+                4: (Action.RIGHT, True),
+                5: (Action.UP_LEFT, True),
+                6: (Action.UP_RIGHT, True),
+                7: (Action.DOWN_LEFT, True),
+                8: (Action.DOWN_RIGHT, True),
+            }
+
+        return {
+            0: (Action.IDLE, False),
+            1: (Action.UP, False),
+            2: (Action.DOWN, False),
+            3: (Action.LEFT, False),
+            4: (Action.RIGHT, False),
+            5: (Action.UP_LEFT, False),
+            6: (Action.UP_RIGHT, False),
+            7: (Action.DOWN_LEFT, False),
+            8: (Action.DOWN_RIGHT, False),
+            9: (Action.IDLE, True),
+            10: (Action.UP, True),
+            11: (Action.DOWN, True),
+            12: (Action.LEFT, True),
+            13: (Action.RIGHT, True),
+            14: (Action.UP_LEFT, True),
+            15: (Action.UP_RIGHT, True),
+            16: (Action.DOWN_LEFT, True),
+            17: (Action.DOWN_RIGHT, True),
+        }
 
     def reset(self):
 
@@ -57,7 +83,7 @@ class VoidSurvivorEnv:
 
     def step(self, action_index):
 
-        action, is_shooting = self.ACTIONS.get(action_index, (Action.IDLE, False))
+        action, is_shooting = self.actions.get(action_index, (Action.IDLE, self.auto_fire))
         self.game.update_with_action(action, is_shooting)
 
         self.steps += 1

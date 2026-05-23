@@ -12,14 +12,14 @@ class BulletManager:
 
         self.bullets = []
 
-    def spawn_bullet(self):
+    def spawn_bullet(self, speed_min=5, speed_max=12):
 
         y = random.randint(
             INFO_PANEL_HEIGHT,
             HEIGHT
         )
 
-        speed = random.randint(5, 12)
+        speed = random.randint(speed_min, speed_max)
 
         bullet = Bullet(
             0,

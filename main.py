@@ -25,6 +25,7 @@ class MainGame:
 
         self.running = True
         self.selected_mode = "survival"
+        self.selected_difficulty = "medium"
 
         self.current_scene = MenuScene(
             self

@@ -39,9 +39,29 @@ class Player:
 
             self.y -= self.speed
 
+        elif action == Action.UP_LEFT:
+
+            self.y -= self.speed
+            self.x -= self.speed
+
+        elif action == Action.UP_RIGHT:
+
+            self.y -= self.speed
+            self.x += self.speed
+
         elif action == Action.DOWN:
 
             self.y += self.speed
+
+        elif action == Action.DOWN_LEFT:
+
+            self.y += self.speed
+            self.x -= self.speed
+
+        elif action == Action.DOWN_RIGHT:
+
+            self.y += self.speed
+            self.x += self.speed
 
         elif action == Action.LEFT:
 

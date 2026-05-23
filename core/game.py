@@ -1,4 +1,5 @@
 import pygame
+import random
 
 from entities.player import Player
 from entities.boss import Boss
@@ -15,14 +16,16 @@ from config.settings import WIDTH
 from config.settings import HEIGHT
 from config.settings import BACKGROUND_COLOR
 from config.settings import INFO_PANEL_HEIGHT
+from config.settings import DIFFICULTY_SETTINGS
 from core.assets import load_image
 
 
 class Game:
 
-    def __init__(self, mode="survival", controller=None):
+    def __init__(self, mode="survival", controller=None, difficulty="medium"):
 
         self.mode = mode
+        self.difficulty = difficulty
 
         self.player = Player(
             700,
@@ -210,17 +213,24 @@ class Game:
         self.bullet_manager.update()
         self.player_bullet_manager.update()
 
-        elapsed_seconds = self.get_elapsed_seconds()
-        difficulty_scale = min(10, 1 + (elapsed_seconds // 20))
-        spawn_interval = max(8, 40 - difficulty_scale * 2)
-        bullets_per_wave = min(10, 1 + (difficulty_scale // 2))
+        settings = DIFFICULTY_SETTINGS.get(self.difficulty, DIFFICULTY_SETTINGS["medium"])
+        spawn_interval = settings.get("spawn_interval", 36)
+        bullets_per_wave = random.randint(
+            settings["bullets_min"],
+            settings["bullets_max"]
+        )
+        speed_min = settings["speed_min"]
+        speed_max = settings["speed_max"]
 
         self.spawn_timer += 1
 
         if self.spawn_timer >= spawn_interval:
 
             for _ in range(bullets_per_wave):
-                self.bullet_manager.spawn_bullet()
+                self.bullet_manager.spawn_bullet(
+                    speed_min=speed_min,
+                    speed_max=speed_max
+                )
 
             self.spawn_timer = 0
 
@@ -255,7 +265,11 @@ class Game:
         for bullet in bullets[:max_bullets]:
             features.append(bullet.x / max(1, WIDTH))
             features.append(bullet.y / max(1, HEIGHT))
-            features.append(bullet.speed / 12)
+            max_speed = max(
+                settings["speed_max"]
+                for settings in DIFFICULTY_SETTINGS.values()
+            )
+            features.append(bullet.speed / max(1, max_speed))
 
         missing = max_bullets - min(max_bullets, len(bullets))
         for _ in range(missing):
