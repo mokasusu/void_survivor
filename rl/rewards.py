@@ -27,18 +27,6 @@ class RewardShaper:
         health_loss = 0
 
         # =========================
-        # Survival reward
-        # =========================
-        reward += 0.001
-        breakdown["survival"] += 0.001
-
-        # =========================
-        # Small time pressure
-        # =========================
-        reward -= 0.001
-        breakdown["time_pressure"] -= 0.001
-
-        # =========================
         # Damage taken penalty
         # =========================
         if self.prev_health is not None:
@@ -48,7 +36,7 @@ class RewardShaper:
             )
 
             if health_loss > 0:
-                penalty = health_loss * 4.0
+                penalty = health_loss * 2.0
                 reward -= penalty
                 breakdown["damage_penalty"] -= penalty
 
@@ -93,7 +81,7 @@ class RewardShaper:
             )
 
             if boss_damage > 0:
-                gain = boss_damage * 2.0
+                gain = boss_damage * 4.0
                 reward += gain
                 breakdown["boss_damage"] += gain
 
@@ -107,7 +95,7 @@ class RewardShaper:
                 breakdown["win_loss"] += 50.0
             else:
                 reward -= 20.0
-                breakdown["win_loss"] -= 20.0
+                breakdown["win_loss"] -= 5.0
 
         # =========================
         # Update
