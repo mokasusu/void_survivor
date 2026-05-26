@@ -179,7 +179,7 @@ def train(config=None):
             resume_path = resume_path / "last.pt"
         if resume_path.exists():
             payload = _load_checkpoint(resume_path, agent)
-            start_episode = int(payload.get("episode", 0))
+            start_episode = 0
             steps_done = int(payload.get("steps_done", 0))
 
     try:

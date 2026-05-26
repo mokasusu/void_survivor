@@ -20,7 +20,7 @@ from core.assets import load_image
 
 class Game:
 
-    def __init__(self, mode="survival", controller=None):
+    def __init__(self, mode="survival", controller=None, use_sim_time=False, sim_step_ms=16):
 
         self.mode = mode
 
@@ -45,7 +45,10 @@ class Game:
 
         self.player_hit_count = 0
 
-        self.start_time = pygame.time.get_ticks()
+        self.use_sim_time = use_sim_time
+        self.sim_step_ms = max(1, int(sim_step_ms))
+        self.time_ms = pygame.time.get_ticks()
+        self.start_time = self._now()
         self.end_time = None
         self.background = load_image(
             "background.png",
@@ -57,6 +60,20 @@ class Game:
         )
         self.hit_effects = []
         self.episode_label = None
+
+    def _now(self):
+
+        if self.use_sim_time:
+            return self.time_ms
+
+        return pygame.time.get_ticks()
+
+    def advance_time(self, steps=1):
+
+        if not self.use_sim_time:
+            return
+
+        self.time_ms += self.sim_step_ms * max(1, int(steps))
 
     def draw_info_gradient(self, screen):
 
@@ -82,7 +99,7 @@ class Game:
     def get_survival_time(self):
 
         if self.running or self.end_time is None:
-            current_time = pygame.time.get_ticks()
+            current_time = self._now()
         else:
             current_time = self.end_time
 
@@ -99,7 +116,7 @@ class Game:
     def get_elapsed_seconds(self):
 
         if self.running or self.end_time is None:
-            current_time = pygame.time.get_ticks()
+            current_time = self._now()
         else:
             current_time = self.end_time
 
@@ -110,7 +127,7 @@ class Game:
 
     def handle_collision(self):
 
-        now = pygame.time.get_ticks()
+        now = self._now()
 
         for bullet in self.bullet_manager.bullets[:]:
 
@@ -141,7 +158,7 @@ class Game:
             return
 
         boss_rect = self.boss.get_rect()
-        now = pygame.time.get_ticks()
+        now = self._now()
 
         for bullet in self.player_bullet_manager.bullets[:]:
             if boss_rect.collidepoint(bullet.x, bullet.y):
@@ -175,7 +192,7 @@ class Game:
         if not player_rect.colliderect(boss_rect):
             return
 
-        now = pygame.time.get_ticks()
+        now = self._now()
         took_damage = self.player.take_damage(now)
         if not took_damage:
             return
@@ -187,7 +204,7 @@ class Game:
 
     def update_hit_effects(self):
 
-        now = pygame.time.get_ticks()
+        now = self._now()
         self.hit_effects = [
             effect
             for effect in self.hit_effects
@@ -204,6 +221,8 @@ class Game:
         )
 
     def update_with_action(self, action, is_shooting):
+
+        self.advance_time()
 
         self.player.update(action)
 
@@ -240,12 +259,25 @@ class Game:
     def get_observation(self, max_bullets=5):
 
         bullets_list = self.bullet_manager.bullets
+        player_cx = self.player.x + self.player.WIDTH / 2
+        player_cy = self.player.y + self.player.HEIGHT / 2
+
+        def _danger_score(bullet):
+            if bullet.speed <= 0:
+                return float("inf")
+            if bullet.x >= player_cx:
+                time_to_reach = float("inf")
+            else:
+                time_to_reach = (player_cx - bullet.x) / bullet.speed
+            y_dist = abs(bullet.y - player_cy) / max(1, HEIGHT)
+            return time_to_reach + y_dist * 0.5
+
         if max_bullets is None or max_bullets >= len(bullets_list):
             bullets = bullets_list
         else:
             bullets = sorted(
                 bullets_list,
-                key=lambda b: abs(b.x - self.player.x)
+                key=_danger_score
             )
         features = []
 
@@ -342,6 +374,10 @@ class Game:
 
         self.player_hit_count = 0
 
-        self.start_time = pygame.time.get_ticks()
+        if self.use_sim_time:
+            self.time_ms = 0
+            self.start_time = 0
+        else:
+            self.start_time = pygame.time.get_ticks()
         self.end_time = None
         self.hit_effects = []

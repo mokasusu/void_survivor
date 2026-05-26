@@ -1,17 +1,16 @@
-import math
-
-
 class RewardShaper:
 
     def __init__(self):
         self.prev_health = None
         self.prev_boss_health = None
+        self.prev_bullet_x = {}
 
     def reset(self, game):
         self.prev_health = game.player.health
         self.prev_boss_health = (
             game.boss.health if game.boss else None
         )
+        self.prev_bullet_x = {}
 
     def compute(self, game):
         reward = 0.0
@@ -36,12 +35,12 @@ class RewardShaper:
             )
 
             if health_loss > 0:
-                penalty = health_loss * 2.0
+                penalty = health_loss * 10.0
                 reward -= penalty
                 breakdown["damage_penalty"] -= penalty
 
         # =========================
-        # Bullet danger reward
+        # Successful dodge reward
         # =========================
         bullets = game.bullet_manager.bullets
 
@@ -50,22 +49,29 @@ class RewardShaper:
             player_cx = game.player.x + game.player.WIDTH / 2
             player_cy = game.player.y + game.player.HEIGHT / 2
 
-            min_dist = float("inf")
+            dodge_reward = 0.0
+            new_prev_bullet_x = {}
 
             for bullet in bullets:
+                bullet_id = id(bullet)
+                prev_x = self.prev_bullet_x.get(bullet_id)
+                new_prev_bullet_x[bullet_id] = bullet.x
 
-                dx = bullet.x - player_cx
-                dy = bullet.y - player_cy
+                if prev_x is None:
+                    continue
 
-                dist = math.sqrt(dx * dx + dy * dy)
+                if prev_x < player_cx <= bullet.x and health_loss == 0:
+                    y_dist = abs(bullet.y - player_cy)
+                    if y_dist <= 80:
+                        dodge_reward += 0.3
 
-                if dist < min_dist:
-                    min_dist = dist
+            if dodge_reward > 0:
+                reward += dodge_reward
+                breakdown["danger"] += dodge_reward
 
-            # reward surviving in danger
-            if min_dist < 120 and health_loss == 0:
-                reward += 0.02
-                breakdown["danger"] += 0.02
+            self.prev_bullet_x = new_prev_bullet_x
+        else:
+            self.prev_bullet_x = {}
 
         # =========================
         # Boss damage reward
@@ -94,8 +100,8 @@ class RewardShaper:
                 reward += 50.0
                 breakdown["win_loss"] += 50.0
             else:
-                reward -= 20.0
-                breakdown["win_loss"] -= 5.0
+                reward -= 40.0
+                breakdown["win_loss"] -= 40.0
 
         # =========================
         # Update

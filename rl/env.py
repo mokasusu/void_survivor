@@ -38,7 +38,12 @@ class VoidSurvivorEnv:
         pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock() if self.render_enabled else None
 
-        self.game = Game(mode=self.mode)
+        step_ms = int(1000 / max(1, self.render_fps))
+        self.game = Game(
+            mode=self.mode,
+            use_sim_time=not self.render_enabled,
+            sim_step_ms=step_ms
+        )
         self.steps = 0
         self.encoder = encoder or StateEncoder()
         self.reward_shaper = reward_shaper or RewardShaper()
