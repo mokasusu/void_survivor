@@ -16,6 +16,9 @@ Triển khai theo spec void_survivor.md (Mục II, III):
 # ---------------------------------------------------------------------------
 import sys as _sys
 from pathlib import Path as _Path
+if hasattr(_sys.stdout, 'reconfigure'):
+    _sys.stdout.reconfigure(encoding='utf-8')
+
 _ROOT = str(_Path(__file__).resolve().parents[1])
 _RL_DIR = str(_Path(__file__).resolve().parent)
 for _p in [_RL_DIR, _RL_DIR + "\\"]:
@@ -69,7 +72,7 @@ def _make_env_fn(cfg: PPOConfig, render: bool = False):
             max_steps=cfg.max_steps,
             render_fps=cfg.render_fps,
         )
-        env = ActionMasker(env, lambda e: e.env.action_masks())
+        env = ActionMasker(env, lambda e: e.action_masks())
         return env
     return _factory
 
