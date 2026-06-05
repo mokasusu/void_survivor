@@ -87,7 +87,7 @@ class RewardShaper:
             )
 
             if boss_damage > 0:
-                gain = boss_damage * 4.0
+                gain = boss_damage * 5.0
                 reward += gain
                 breakdown["boss_damage"] += gain
 

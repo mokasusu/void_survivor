@@ -288,18 +288,21 @@ class Game:
             features.append(bullet.x / max(1, WIDTH))
             features.append(bullet.y / max(1, HEIGHT))
             features.append(bullet.speed / 12)
+            features.append(bullet.RADIUS / max(1, WIDTH))
 
         missing = max_bullets - min(max_bullets, len(bullets))
         for _ in range(missing):
-            features.extend([0.0, 0.0, 0.0])
+            features.extend([0.0, 0.0, 0.0, 0.0])
 
         if self.boss is not None:
             boss_x = self.boss.x / max(1, WIDTH)
             boss_y = self.boss.y / max(1, HEIGHT)
+            boss_w = self.boss.display_width / max(1, WIDTH)
+            boss_h = self.boss.display_height / max(1, HEIGHT)
             boss_ratio = 0 if self.boss.max_health <= 0 else self.boss.health / self.boss.max_health
-            features.extend([boss_x, boss_y, boss_ratio])
+            features.extend([boss_x, boss_y, boss_w, boss_h, boss_ratio])
         else:
-            features.extend([0.0, 0.0, 0.0])
+            features.extend([0.0, 0.0, 0.0, 0.0, 0.0])
 
         return features
 
