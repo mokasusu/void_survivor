@@ -21,7 +21,7 @@ from core.ui import UI
 from core.assets import load_image
 from config.settings import WIDTH, HEIGHT, BACKGROUND_COLOR, INFO_PANEL_HEIGHT
 
-SHOOT_COOLDOWN_FRAMES = 16  # khớp với StateEncoder
+SHOOT_COOLDOWN_FRAMES = 6  # khớp với StateEncoder
 
 
 class GamePPO:
@@ -80,12 +80,12 @@ class GamePPO:
     # Curriculum — khởi tạo trận đấu theo Stage
     # ------------------------------------------------------------------
 
-    def init_match(self, stage: int):
+    def init_match(self, stage: int, stage_steps: int = 0):
         """Khởi tạo lại toàn bộ trạng thái game cho một trận đấu mới."""
         self._active_stage = stage
 
         self.player = Player(700, 300)
-        self.boss = BossPPO(stage=stage)
+        self.boss = BossPPO(stage=stage, stage_steps=stage_steps)
 
         self.bullet_manager = BulletManager()
         self.boss_bullet_manager = BossBulletManager()

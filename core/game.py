@@ -249,7 +249,7 @@ class Game:
         if is_shooting and self.shoot_cooldown == 0:
             shoot_x, shoot_y = self.player.get_shoot_origin()
             self.player_bullet_manager.shoot(shoot_x, shoot_y)
-            self.shoot_cooldown = 16
+            self.shoot_cooldown = 6
 
         self.handle_boss_collision()
         self.handle_player_boss_contact()

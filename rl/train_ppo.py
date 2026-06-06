@@ -106,7 +106,8 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
         # Ép stage cụ thể — bỏ qua stage mixing
         env.current_stage = stage
         env._active_stage = stage
-        env.game.init_match(stage=stage)
+        env.steps_in_stage = 999999  # Đánh giá ở mức độ khó tối đa (không bảo hiểm/DDA)
+        env.game.init_match(stage=stage, stage_steps=999999)
         obs = enc.encode(env.game)
         env._reward_shaper.reset(env.game)
         env._steps = 0
@@ -114,7 +115,9 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
         done = False
         info = {}
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            # Truyền action_masks để MaskablePPO không chọn action bị khóa (vd: bắn khi cooldown)
+            masks = env.action_masks()
+            action, _ = model.predict(obs, deterministic=True, action_masks=masks)
             obs, _rew, terminated, truncated, info = env.step(int(action))
             done = terminated or truncated
 
@@ -130,17 +133,19 @@ def evaluate_all_stages(
     current_stage: int,
     cfg: PPOConfig,
     prev_win_rates: dict,
-) -> tuple[float, bool]:
+) -> tuple[float, bool, dict[int, float]]:
     """
     Đánh giá tất cả stage từ 1 → current_stage.
-    Trả về (win_rate_current, is_old_stage_corrupted).
+    Trả về (win_rate_current, is_old_stage_corrupted, current_win_rates).
     """
     win_rate_current = 0.0
     is_corrupted = False
+    current_win_rates = {}
 
     for s in range(1, current_stage + 1):
         wr = evaluate_stage(model, s, cfg)
         print(f"  [Eval] Stage {s}: win_rate = {wr:.1%}")
+        current_win_rates[s] = wr
 
         if s == current_stage:
             win_rate_current = wr
@@ -152,7 +157,7 @@ def evaluate_all_stages(
 
         prev_win_rates[s] = max(prev_win_rates.get(s, 0.0), wr)
 
-    return win_rate_current, is_corrupted
+    return win_rate_current, is_corrupted, current_win_rates
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +236,12 @@ def train(cfg: PPOConfig | None = None):
 
     entropy_sched = EntropyScheduler(cfg)
     prev_win_rates: dict[int, float] = {}
-    best_avg_win_rate: float = 0.0
+    
+    # Best model tracking
+    best_stage = 0
+    best_avg_win_rate = -1.0
+    best_prev_win_rates: dict[int, float] = {}
+    
     rollback_fail_count = 0
     steps_trained = 0
     learn_block = cfg.eval_interval
@@ -254,15 +264,29 @@ def train(cfg: PPOConfig | None = None):
 
         # Decoupled Evaluation
         print("[Eval] Đang đánh giá độc lập...")
-        win_rate_cur, is_corrupted = evaluate_all_stages(model, current_stage, cfg, prev_win_rates)
+        win_rate_cur, is_corrupted, current_win_rates = evaluate_all_stages(model, current_stage, cfg, prev_win_rates)
         print(f"[Eval] Stage {current_stage} win_rate = {win_rate_cur:.1%} | corrupted = {is_corrupted}")
 
         # Lưu best model
-        avg_wr = float(np.mean(list(prev_win_rates.values()))) if prev_win_rates else 0.0
-        if avg_wr >= best_avg_win_rate:
-            best_avg_win_rate = avg_wr
+        current_avg_wr = float(np.mean(list(current_win_rates.values()))) if current_win_rates else 0.0
+        
+        # Tiêu chí lưu best model:
+        # 1. Đạt stage cao hơn best_stage đã lưu trước đó.
+        # 2. Hoặc cùng stage nhưng avg_win_rate hiện tại cao hơn.
+        # Đồng thời mô hình không được bị corrupted (sụt giảm quá nhiều ở các stage cũ).
+        is_new_best = False
+        if not is_corrupted:
+            if current_stage > best_stage:
+                is_new_best = True
+            elif current_stage == best_stage and current_avg_wr > best_avg_win_rate:
+                is_new_best = True
+
+        if is_new_best:
+            best_stage = current_stage
+            best_avg_win_rate = current_avg_wr
+            best_prev_win_rates = prev_win_rates.copy()
             model.save(str(best_model_path))
-            print(f"[Checkpoint] Best model → {best_model_path} (avg_wr={avg_wr:.1%})")
+            print(f"[Checkpoint] Best model → {best_model_path} (Stage: {best_stage}, avg_wr={best_avg_win_rate:.1%})")
 
         # Nâng Stage
         if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 4:
@@ -271,6 +295,13 @@ def train(cfg: PPOConfig | None = None):
             entropy_sched.on_stage_up(steps_trained)
             model.ent_coef = entropy_sched.get(steps_trained)
             rollback_fail_count = 0
+            
+            # Giảm Learning Rate khi chuyển sang stage mới để tránh sập policy (3e-4 -> 1e-4)
+            current_lr = 1e-4
+            for param_group in model.policy.optimizer.param_groups:
+                param_group['lr'] = current_lr
+            print(f"  [Learning Rate] Đã giảm lr → {current_lr} để ổn định học stage mới")
+            
             print(f"\n{'*'*60}\n  *** TIẾN LÊN STAGE {current_stage}! ***\n{'*'*60}\n")
             model.save(str(run_dir / f"stage_{current_stage}_entry.zip"))
 
@@ -283,10 +314,17 @@ def train(cfg: PPOConfig | None = None):
                 if best_model_path.exists():
                     model = MaskablePPO.load(str(best_model_path), env=vec_env)
                     print(f"[Rollback] Đã tải lại {best_model_path}")
-                current_stage = max(1, current_stage - 1)
+                # Reset curriculum state
+                current_stage = max(1, best_stage)
+                prev_win_rates = best_prev_win_rates.copy()
                 _set_stage_all_envs(vec_env, current_stage)
                 rollback_fail_count = 0
-                print(f"[Rollback] Hạ xuống Stage {current_stage}\n")
+                
+                # Khôi phục Learning Rate mặc định khi quay lại stage cũ
+                current_lr = cfg.learning_rate
+                for param_group in model.policy.optimizer.param_groups:
+                    param_group['lr'] = current_lr
+                print(f"[Rollback] Quay lại Stage {current_stage} | Khôi phục lr → {current_lr}\n")
         else:
             rollback_fail_count = 0
 
@@ -295,6 +333,7 @@ def train(cfg: PPOConfig | None = None):
             "steps_trained": steps_trained,
             "current_stage": current_stage,
             "win_rate_current_stage": round(win_rate_cur, 4),
+            "best_stage": best_stage,
             "best_avg_win_rate": round(best_avg_win_rate, 4),
             "ent_coef": round(current_ent, 6),
             "rollback_fail_count": rollback_fail_count,

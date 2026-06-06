@@ -64,11 +64,13 @@ class BulletHellEnv(gym.Env):
 
         # Curriculum state — được set bởi train_ppo.py
         self.current_stage: int = 1
+        self.steps_in_stage: int = 0
 
         # Internals
         self._encoder = PPOStateEncoder()
         self._reward_shaper = PPORewardShaper()
         self._steps: int = 0
+        self.frames_since_last_damage: int = 0  # Đếm frame trì trệ không gây damage
 
         # Pygame setup
         if render_mode != "human":
@@ -105,7 +107,10 @@ class BulletHellEnv(gym.Env):
     # ------------------------------------------------------------------
 
     def set_stage(self, stage: int):
-        self.current_stage = max(1, min(4, stage))
+        stage = max(1, min(4, stage))
+        if self.current_stage != stage:
+            self.current_stage = stage
+            self.steps_in_stage = 0
 
     # ------------------------------------------------------------------
     # ActionMasking
@@ -125,9 +130,10 @@ class BulletHellEnv(gym.Env):
         super().reset(seed=seed)
 
         self._active_stage = self._pick_stage()
-        self.game.init_match(stage=self._active_stage)
+        self.game.init_match(stage=self._active_stage, stage_steps=self.steps_in_stage)
         self._reward_shaper.reset(self.game)
         self._steps = 0
+        self.frames_since_last_damage = 0  # Reset counter khi bắt đầu tập mới
 
         obs = self._encoder.encode(self.game)
         info = {"stage": self._active_stage}
@@ -139,19 +145,47 @@ class BulletHellEnv(gym.Env):
 
     def step(self, action: int):
         action_enum, is_shooting = ACTION_MAP[int(action)]
+        
+        # Lưu boss hp trước khi update
+        prev_boss_hp = self.game.boss.health if self.game.boss else 0
+        
         self.game.update_with_action(action_enum, is_shooting)
         self._steps += 1
+        self.steps_in_stage += 1
+
+        # Check xem boss có bị mất máu không
+        cur_boss_hp = self.game.boss.health if self.game.boss else 0
+        is_hit_boss = (prev_boss_hp - cur_boss_hp) > 0
+
+        if is_hit_boss:
+            self.frames_since_last_damage = 0
+        else:
+            self.frames_since_last_damage += 1
 
         obs = self._encoder.encode(self.game)
-        reward, breakdown = self._reward_shaper.compute(self.game)
+        reward, breakdown = self._reward_shaper.compute(
+            self.game,
+            stage=self._active_stage,
+            stage_steps=self.steps_in_stage
+        )
 
         terminated = self.game.is_over()
         truncated = self._steps >= self.max_steps
+
+        # Khai tử trận đấu nếu câu giờ vượt quá giới hạn chịu đựng (800 frames)
+        stagnation_truncate_penalty = 0.0
+        if self.frames_since_last_damage > 800:
+            truncated = True
+            stagnation_truncate_penalty = -5.0  # Phạt vừa phải, tránh kích hoạt suicide loop
+            reward += stagnation_truncate_penalty
+            
+        breakdown["stagnation_truncate_penalty"] = stagnation_truncate_penalty
 
         info = {
             "is_win": self.game.is_victory,
             "match_stage": self._active_stage,
             "reward_breakdown": breakdown,
+            "frames_since_last_damage": self.frames_since_last_damage,
         }
 
         if self.render_mode == "human":

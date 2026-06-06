@@ -239,3 +239,5 @@ if __name__ == "__main__":
             model = MaskablePPO.load(f"best_model_stage_{current_global_stage}", env=vec_env)
             current_global_stage -= 1
             vec_env.env_method("set_stage", current_global_stage)
+
+

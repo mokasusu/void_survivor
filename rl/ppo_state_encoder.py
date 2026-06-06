@@ -19,7 +19,7 @@ V_MAX = 12.0
 D_MAX = math.sqrt(WIDTH ** 2 + HEIGHT ** 2)
 
 MAX_BULLETS = 10  # Bullet Radar = 10 viên gần nhất
-SHOOT_COOLDOWN_MAX = 16  # frames, khớp với game.py
+SHOOT_COOLDOWN_MAX = 6  # frames, khớp với game.py
 
 
 class PPOStateEncoder:

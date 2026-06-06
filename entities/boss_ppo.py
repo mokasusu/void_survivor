@@ -21,7 +21,7 @@ class BossPPO:
     DISPLAY_WIDTH = 120
     DISPLAY_HEIGHT = 120
 
-    def __init__(self, stage: int = 1):
+    def __init__(self, stage: int = 1, stage_steps: int = 0):
         self.sprite = load_image("boss.png")
 
         self.display_width = self.DISPLAY_WIDTH
@@ -49,13 +49,13 @@ class BossPPO:
         # Shoot state
         self._shoot_timer = 0
 
-        self.init_stage(stage)
+        self.init_stage(stage, stage_steps)
 
     # ------------------------------------------------------------------
     # Stage initialization
     # ------------------------------------------------------------------
 
-    def init_stage(self, stage: int):
+    def init_stage(self, stage: int, stage_steps: int = 0):
         cfg = get_stage_config(stage)
         self._stage = stage
         self._cfg = cfg
@@ -70,6 +70,22 @@ class BossPPO:
         self._bullet_speed = cfg["bullet_speed"]
         self._pattern = cfg["pattern"]
 
+        # --- DDA (Dynamic Difficulty Adjustment) dựa trên stage_steps ---
+        # 12,500 steps/env tương ứng với 100,000 global steps khi chạy 8 envs
+        transition_steps = 12500
+        p = min(1.0, max(0.0, stage_steps / transition_steps))
+
+        if stage == 2:
+            # Soft Start: Bắn thưa ở đầu Stage 2 (300 frames ~ 5 giây) rồi tăng dần về mặc định (120 frames)
+            self._shoot_interval = int(300 - (300 - cfg["shoot_interval_frames"]) * p)
+        elif stage == 3:
+            # Boss di chuyển chậm ở đầu (0.5) rồi nhanh dần về mặc định (2.0)
+            self._move_speed = 0.5 + (cfg["move_speed"] - 0.5) * p
+            # Thu hẹp biên độ di chuyển ở đầu (30% biên độ dọc) rồi mở rộng dần về mặc định (100%)
+            self._move_range_scale = 0.3 + 0.7 * p
+        else:
+            self._move_range_scale = 1.0
+
         # Reset timers
         self._shoot_timer = 0
         self._move_timer = 0
@@ -77,8 +93,13 @@ class BossPPO:
 
         # Đặt Boss ở vị trí ngẫu nhiên cột bên trái
         self.x = 70
-        min_y = INFO_PANEL_HEIGHT + 10
-        max_y = HEIGHT - self.display_height - 10
+        min_y = INFO_PANEL_HEIGHT
+        max_y = HEIGHT - self.display_height
+        c_y = (min_y + max_y) / 2
+        r_y = (max_y - min_y) / 2
+        if stage == 3:
+            min_y = int(c_y - r_y * self._move_range_scale)
+            max_y = int(c_y + r_y * self._move_range_scale)
         self.y = random.randint(min_y, max_y)
 
     # ------------------------------------------------------------------
@@ -115,6 +136,13 @@ class BossPPO:
             if self._move_timer >= self._move_change_interval:
                 self._move_dir *= -1
                 self._move_timer = 0
+
+            # Áp dụng biên độ di chuyển thu hẹp cho Stage 3
+            if self._stage == 3 and hasattr(self, "_move_range_scale"):
+                c_y = (min_y + max_y) / 2
+                r_y = (max_y - min_y) / 2
+                min_y = c_y - r_y * self._move_range_scale
+                max_y = c_y + r_y * self._move_range_scale
 
         self.y += self._move_dir * self._move_speed
         self.y = max(min_y, min(max_y, self.y))
