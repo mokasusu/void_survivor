@@ -70,7 +70,7 @@ class BulletHellEnv(gym.Env):
         self._encoder = PPOStateEncoder()
         self._reward_shaper = PPORewardShaper()
         self._steps: int = 0
-        self.frames_since_last_damage: int = 0  # Đếm frame trì trệ không gây damage
+        self.frames_since_last_damage = 0  # Đếm frame trì trệ không gây damage
 
         # Pygame setup
         if render_mode != "human":

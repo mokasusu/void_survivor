@@ -200,7 +200,7 @@ class EntropyScheduler:
 # Main training loop
 # ---------------------------------------------------------------------------
 
-def train(cfg: PPOConfig | None = None):
+def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_stage: int = 1):
     cfg = cfg or PPOConfig()
     run_dir = _build_run_dir(cfg)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -215,24 +215,34 @@ def train(cfg: PPOConfig | None = None):
     # Vectorized Environment
     vec_env = make_vec_env(_make_env_fn(cfg, render=False), n_envs=cfg.n_envs)
 
-    # MaskablePPO model
-    model = MaskablePPO(
-        "MlpPolicy",
-        vec_env,
-        learning_rate=cfg.learning_rate,
-        gamma=cfg.gamma,
-        ent_coef=cfg.ent_coef,
-        n_steps=cfg.n_steps,
-        batch_size=cfg.batch_size,
-        n_epochs=cfg.n_epochs,
-        clip_range=cfg.clip_range,
-        verbose=1,
-        tensorboard_log=cfg.tensorboard_log,
-    )
+    # MaskablePPO model — tải lại nếu có resume_path, ngược lại tạo mới
+    if resume_path:
+        print(f"[Resume] Đang nạp checkpoint: {resume_path}")
+        model = MaskablePPO.load(resume_path, env=vec_env)
+        # Giữ nguyên LR từ config để tiếp tục train ổn định
+        for pg in model.policy.optimizer.param_groups:
+            pg["lr"] = cfg.learning_rate
+        print(f"[Resume] Đặt lại lr = {cfg.learning_rate}")
+    else:
+        model = MaskablePPO(
+            "MlpPolicy",
+            vec_env,
+            learning_rate=cfg.learning_rate,
+            gamma=cfg.gamma,
+            ent_coef=cfg.ent_coef,
+            n_steps=cfg.n_steps,
+            batch_size=cfg.batch_size,
+            n_epochs=cfg.n_epochs,
+            clip_range=cfg.clip_range,
+            verbose=1,
+            tensorboard_log=cfg.tensorboard_log,
+        )
 
     # Curriculum state
-    current_stage = 1
+    current_stage = max(1, min(5, start_stage))
     _set_stage_all_envs(vec_env, current_stage)
+    if resume_path:
+        print(f"[Resume] Bắt đầu từ Stage {current_stage}\n")
 
     entropy_sched = EntropyScheduler(cfg)
     prev_win_rates: dict[int, float] = {}
@@ -289,7 +299,7 @@ def train(cfg: PPOConfig | None = None):
             print(f"[Checkpoint] Best model → {best_model_path} (Stage: {best_stage}, avg_wr={best_avg_win_rate:.1%})")
 
         # Nâng Stage
-        if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 4:
+        if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 5:
             current_stage += 1
             _set_stage_all_envs(vec_env, current_stage)
             entropy_sched.on_stage_up(steps_trained)
@@ -351,10 +361,14 @@ def train(cfg: PPOConfig | None = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train MaskablePPO — Void Survivor")
-    parser.add_argument("--timesteps", type=int,  default=None, help="Override PPO_TOTAL_TIMESTEPS")
-    parser.add_argument("--envs",      type=int,  default=None, help="Override PPO_N_ENVS")
-    parser.add_argument("--run-name",  type=str,  default=None, help="Override PPO_RUN_NAME")
-    parser.add_argument("--render",    action="store_true",     help="Bật render (chậm hơn)")
+    parser.add_argument("--timesteps",   type=int,  default=None, help="Override PPO_TOTAL_TIMESTEPS")
+    parser.add_argument("--envs",        type=int,  default=None, help="Override PPO_N_ENVS")
+    parser.add_argument("--run-name",    type=str,  default=None, help="Override PPO_RUN_NAME")
+    parser.add_argument("--render",      action="store_true",     help="Bật render (chậm hơn)")
+    parser.add_argument("--resume",      type=str,  default=None,
+                        help="Đường dẫn file .zip cần nạp lại (ví dụ: models/ppo/xxx/stage_4_entry.zip)")
+    parser.add_argument("--start-stage", type=int,  default=1,
+                        help="Stage bắt đầu khi resume (mặc định: 1)")
     args = parser.parse_args()
 
     cfg = PPOConfig()
@@ -367,4 +381,4 @@ if __name__ == "__main__":
     if args.render:
         cfg.render = True
 
-    train(cfg)
+    train(cfg, resume_path=args.resume, start_stage=args.start_stage)
