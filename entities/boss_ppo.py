@@ -48,6 +48,8 @@ class BossPPO:
 
         # Shoot state
         self._shoot_timer = 0
+        self._burst_bullets_left = 0
+        self._burst_cooldown = 0
 
         self.init_stage(stage, stage_steps)
 
@@ -88,6 +90,8 @@ class BossPPO:
 
         # Reset timers
         self._shoot_timer = 0
+        self._burst_bullets_left = 0
+        self._burst_cooldown = 0
         self._move_timer = 0
         self._move_dir = random.choice([-1, 1])
 
@@ -122,8 +126,8 @@ class BossPPO:
         min_y = INFO_PANEL_HEIGHT
         max_y = HEIGHT - self.display_height
 
-        if self._stage == 4:
-            # Stage 4: di chuyển thông minh — đuổi theo Y của player
+        if self._stage >= 4:
+            # Stage 4+: di chuyển thông minh — đuổi theo Y của player
             self._smart_timer += 1
             boss_cy = self.y + self.display_height / 2
             if boss_cy < player_cy:
@@ -151,17 +155,53 @@ class BossPPO:
         if not self._shoot_enabled or self._shoot_interval <= 0:
             return []
 
-        self._shoot_timer += 1
-        if self._shoot_timer < self._shoot_interval:
-            return []
+        bullets = []
 
-        self._shoot_timer = 0
-        boss_cx = self.x + self.display_width / 2
-        boss_cy = self.y + self.display_height / 2
-        return spawn_boss_bullets(
-            self._pattern, boss_cx, boss_cy,
-            player_cx, player_cy, self._bullet_speed
-        )
+        # Xử lý bắn đạn tuần tự (burst)
+        if self._burst_bullets_left > 0:
+            self._burst_cooldown -= 1
+            if self._burst_cooldown <= 0:
+                boss_cx = self.x + self.display_width / 2
+                boss_cy = self.y + self.display_height / 2
+                
+                # Hướng bắn và tốc độ ngẫu nhiên nhẹ để tăng độ khó đoán
+                target_x = player_cx + random.uniform(-30, 30)
+                target_y = player_cy + random.uniform(-30, 30)
+                speed = self._bullet_speed * random.uniform(0.9, 1.1)
+                
+                bullets.extend(spawn_boss_bullets(
+                    "straight", boss_cx, boss_cy,
+                    target_x, target_y, speed
+                ))
+                self._burst_bullets_left -= 1
+                self._burst_cooldown = random.randint(8, 16)  # ngẫu nhiên giãn cách giữa các viên
+            return bullets
+
+        self._shoot_timer += 1
+        if self._shoot_timer >= self._shoot_interval:
+            # Ngẫu nhiên nhẹ thời gian bắt đầu loạt đạn tiếp theo (-15 đến +15 frames)
+            self._shoot_timer = random.randint(-15, 15)
+            boss_cx = self.x + self.display_width / 2
+            boss_cy = self.y + self.display_height / 2
+            
+            if self._pattern == "independent":
+                # Kích hoạt chuỗi bắn 2-3 viên tuần tự ngẫu nhiên (1 viên đầu bắn luôn)
+                target_x = player_cx + random.uniform(-30, 30)
+                target_y = player_cy + random.uniform(-30, 30)
+                speed = self._bullet_speed * random.uniform(0.9, 1.1)
+                
+                bullets.extend(spawn_boss_bullets(
+                    "straight", boss_cx, boss_cy,
+                    target_x, target_y, speed
+                ))
+                self._burst_bullets_left = random.randint(1, 2)  # Tổng cộng 2 đến 3 viên
+                self._burst_cooldown = random.randint(8, 16)
+            else:
+                bullets.extend(spawn_boss_bullets(
+                    self._pattern, boss_cx, boss_cy,
+                    player_cx, player_cy, self._bullet_speed
+                ))
+        return bullets
 
     # ------------------------------------------------------------------
     # Damage / helpers

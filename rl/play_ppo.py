@@ -73,7 +73,7 @@ def play(model_path: str, stage: int, episodes: int = 3, fps: int = 60):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("model_path", type=str, help="Đường dẫn đến file .zip (VD: models/ppo/run_1/best_model.zip)")
-    parser.add_argument("--stage", type=int, default=1, help="Chạy ở Stage nào (1-4). Mặc định: 1")
+    parser.add_argument("--stage", type=int, default=1, help="Chạy ở Stage nào (1-6). Mặc định: 1")
     parser.add_argument("--episodes", type=int, default=3, help="Số trận muốn xem. Mặc định: 3")
     parser.add_argument("--fps", type=int, default=60, help="Tốc độ khung hình. Mặc định: 60")
     

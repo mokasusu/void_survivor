@@ -5,8 +5,8 @@ Triển khai theo spec void_survivor.md (Mục II, III):
   - Stage Mixing 70/20/10 tại env.reset()
   - Decoupled Evaluation mỗi PPO_EVAL_INTERVAL steps
   - Điều kiện nâng Stage: win_rate > 80% & old stages không sụt > 5%
-  - Automatic Rollback: win_rate < 15% liên tục 3 kỳ eval
-  - Dynamic Entropy Schedule: tăng ent_coef khi lên stage mới, giảm dần về floor
+  - Automatic Rollback: win_rate < 15% liên tục 3 kỳ eval, HOẶC ngay lập tức khi corrupted
+  - Dynamic Entropy Schedule: tăng ent_coef nhẹ (max +0.03) khi lên stage mới, giảm dần về floor
 """
 
 # ---------------------------------------------------------------------------
@@ -86,6 +86,19 @@ def _write_meta(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Per-stage Learning Rate (Decay khi stage cao để tránh ghi đè kiến thức cũ)
+# ---------------------------------------------------------------------------
+_STAGE_LR = {
+    1: 3e-4,
+    2: 3e-4,
+    3: 1e-4,   # Stage 3 — bước ngoặt giảm LR
+    4: 1e-4,
+    5: 5e-5,   # Fine-tune nhẹ
+    6: 2e-5,   # Fine-tune cực nhẹ
+}
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +193,9 @@ class EntropyScheduler:
 
     def on_stage_up(self, global_step: int):
         self._stage_up_at = global_step
-        self._current = self._base + self._boost
+        # Giới hạn boost tối đa +0.03 để tránh phá vỡ policy khi lên stage
+        capped_boost = min(self._boost, 0.03)
+        self._current = self._base + capped_boost
         print(f"  [Entropy] Tăng ent_coef → {self._current:.4f} (boost {self._boost_steps} steps)")
 
     def get(self, global_step: int) -> float:
@@ -219,10 +234,10 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
     if resume_path:
         print(f"[Resume] Đang nạp checkpoint: {resume_path}")
         model = MaskablePPO.load(resume_path, env=vec_env)
-        # Giữ nguyên LR từ config để tiếp tục train ổn định
+        initial_lr = _STAGE_LR.get(start_stage, 3e-4)
         for pg in model.policy.optimizer.param_groups:
-            pg["lr"] = cfg.learning_rate
-        print(f"[Resume] Đặt lại lr = {cfg.learning_rate}")
+            pg["lr"] = initial_lr
+        print(f"[Resume] Đặt lại lr = {initial_lr} (Stage {start_stage})")
     else:
         model = MaskablePPO(
             "MlpPolicy",
@@ -239,7 +254,7 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
         )
 
     # Curriculum state
-    current_stage = max(1, min(5, start_stage))
+    current_stage = max(1, min(6, start_stage))
     _set_stage_all_envs(vec_env, current_stage)
     if resume_path:
         print(f"[Resume] Bắt đầu từ Stage {current_stage}\n")
@@ -298,43 +313,53 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
             model.save(str(best_model_path))
             print(f"[Checkpoint] Best model → {best_model_path} (Stage: {best_stage}, avg_wr={best_avg_win_rate:.1%})")
 
+        # Hàm thực thi rollback — dùng chung cho cả 2 nhánh kích hoạt
+        def _do_rollback(reason: str):
+            nonlocal model, current_stage, best_stage, best_avg_win_rate, rollback_fail_count
+            print(f"\n!!! {reason} — KÍCH HOẠT ROLLBACK !!!")
+            if best_model_path.exists():
+                model = MaskablePPO.load(str(best_model_path), env=vec_env)
+                print(f"[Rollback] Đã tải lại {best_model_path}")
+            current_stage = max(1, current_stage - 1)
+            prev_win_rates.update(best_prev_win_rates)
+            _set_stage_all_envs(vec_env, current_stage)
+            rollback_fail_count = 0
+            best_stage = current_stage
+            stage_rates = [best_prev_win_rates[s] for s in range(1, best_stage + 1) if s in best_prev_win_rates]
+            best_avg_win_rate = float(np.mean(stage_rates)) if stage_rates else -1.0
+            print(f"[Rollback] Quay lại Stage {current_stage}\n")
+
         # Nâng Stage
-        if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 5:
+        if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 6:
             current_stage += 1
             _set_stage_all_envs(vec_env, current_stage)
             entropy_sched.on_stage_up(steps_trained)
             model.ent_coef = entropy_sched.get(steps_trained)
             rollback_fail_count = 0
-            
-            # Giảm Learning Rate khi chuyển sang stage mới để tránh sập policy (3e-4 -> 1e-4)
-            current_lr = 1e-4
+
+            # Điểm 3: LR decay theo stage — Stage 5+ fine-tune nhẹ để bảo vệ kiến thức cũ
+            new_lr = _STAGE_LR.get(current_stage, 3e-4)
             for param_group in model.policy.optimizer.param_groups:
-                param_group['lr'] = current_lr
-            print(f"  [Learning Rate] Đã giảm lr → {current_lr} để ổn định học stage mới")
-            
+                param_group["lr"] = new_lr
+            print(f"  [LR] lr → {new_lr} cho Stage {current_stage}")
+
             print(f"\n{'*'*60}\n  *** TIẾN LÊN STAGE {current_stage}! ***\n{'*'*60}\n")
             model.save(str(run_dir / f"stage_{current_stage}_entry.zip"))
 
-        # Rollback
+        # Rollback tức thì: stage cũ bị corrupted (catastrophic forgetting)
+        elif is_corrupted and current_stage > 1:
+            rollback_fail_count += 1
+            print(f"[WARN] Corrupted rollback counter: {rollback_fail_count}/{cfg.rollback_patience}")
+            if rollback_fail_count >= cfg.rollback_patience:
+                _do_rollback("PHÁT HIỆN CATASTROPHIC FORGETTING")
+
+        # Rollback chậm: stage hiện tại win_rate thấp kéo dài
         elif win_rate_cur < cfg.rollback_threshold and current_stage > 1:
             rollback_fail_count += 1
             print(f"[WARN] Rollback counter: {rollback_fail_count}/{cfg.rollback_patience}")
             if rollback_fail_count >= cfg.rollback_patience:
-                print("\n!!! PHÁT HIỆN SẬP POLICY — KÍCH HOẠT ROLLBACK !!!")
-                if best_model_path.exists():
-                    model = MaskablePPO.load(str(best_model_path), env=vec_env)
-                    print(f"[Rollback] Đã tải lại {best_model_path}")
-                # Reset curriculum state
-                current_stage = max(1, best_stage)
-                prev_win_rates = best_prev_win_rates.copy()
-                _set_stage_all_envs(vec_env, current_stage)
-                rollback_fail_count = 0
-                
-                # Khôi phục Learning Rate mặc định khi quay lại stage cũ
-                current_lr = cfg.learning_rate
-                for param_group in model.policy.optimizer.param_groups:
-                    param_group['lr'] = current_lr
-                print(f"[Rollback] Quay lại Stage {current_stage} | Khôi phục lr → {current_lr}\n")
+                _do_rollback("PHÁT HIỆN SẬP POLICY")
+
         else:
             rollback_fail_count = 0
 

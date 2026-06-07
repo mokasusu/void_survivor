@@ -50,6 +50,7 @@ class PPORewardShaper:
             "miss_penalty": 0.0,
             "alignment": 0.0,
             "stagnation_penalty": 0.0,  # Luồng phạt câu giờ
+            "time_penalty": 0.0,        # Phạt nhẹ mỗi frame tại stage cao (thúc đẩy kết thúc nhanh)
             "terminal": 0.0,
         }
 
@@ -108,14 +109,27 @@ class PPORewardShaper:
                 self.frames_since_last_damage += 1
 
         # ---------------------------------------------------------------
-        # GIẢI PHÁP ĐẶC TRỊ: Phạt câu giờ / Trì trệ (Stagnation Penalty)
+        # GIẢI PHÁP ĐẶC TRỊ: Phạt trì trệ — nghiếm thức và mức phạt co giãn theo stage
         # ---------------------------------------------------------------
-        # Nếu quá 3 giây (180 frames ở 60fps) không bắn trúng Boss, bắt đầu phạt nặng
-        if self.frames_since_last_damage > 180:
-            breakdown["stagnation_penalty"] -= 0.02
-            # Nếu quá 8 giây (480 frames) cực hình, phạt lũy tiến tăng cường
-            if self.frames_since_last_damage > 480:
-                breakdown["stagnation_penalty"] -= 0.1
+        # Stage thấp (Boss đứng im / đạn thưa): phạt nhanh và nặng
+        # Stage cao (Boss bắn ngập màn hình): cho nhiều thời gian né rồi mới phạt nhẹ
+        stagnation_grace   = 180 + (stage - 1) * 120   # Stage 1=180f, Stage 3=420f, Stage 6=780f
+        stagnation_hard    = stagnation_grace * 2       # Ngưỡng phạt mạnh hơn
+        stagnation_penalty = max(0.005, 0.02 - (stage - 1) * 0.003)  # Stage 1=-0.020, Stage 6=-0.005
+
+        if self.frames_since_last_damage > stagnation_grace:
+            breakdown["stagnation_penalty"] -= stagnation_penalty
+            if self.frames_since_last_damage > stagnation_hard:
+                # Phạt lũy tiến cũng co giãn: stage cao phạt nhẹ hơn
+                hard_penalty = max(0.02, 0.10 - (stage - 1) * 0.015)  # Stage 1=-0.10, Stage 6=-0.025
+                breakdown["stagnation_penalty"] -= hard_penalty
+
+        # ---------------------------------------------------------------
+        # Time Penalty — Stage >= 3: phạt nhẹ mỗi frame để thúc đẩy kết thúc nhanh
+        # ---------------------------------------------------------------
+        # Giá trị nhỏ (-0.001) không lấn át boss_damage (+0.6) nhưng tạo áp lực để rút ngắn ep_len
+        if game.running and stage >= 3:
+            breakdown["time_penalty"] -= 0.001
 
         # ---------------------------------------------------------------
         # R_offensive — Phạt bắn hụt (Đã sửa logic tách biệt hoàn toàn)

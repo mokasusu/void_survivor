@@ -45,7 +45,7 @@ print("[OK] MaskablePPO + ActionMasker")
 
 print()
 print("--- Smoke-test: BossPPO stage configs ---")
-for s in range(1, 5):
+for s in range(1, 7):
     boss = BossPPO(stage=s)
     assert boss.health == get_stage_config(s)["hp"], f"HP mismatch stage {s}"
     print(f"  Stage {s}: HP={boss.health}, moves={boss._moves}, shoot={boss._shoot_enabled}, pattern={boss._pattern}")
@@ -53,7 +53,7 @@ for s in range(1, 5):
 print()
 print("--- Smoke-test: GamePPO init_match ---")
 game = GamePPO(use_sim_time=True, sim_step_ms=16)
-for s in range(1, 5):
+for s in range(1, 7):
     game.init_match(stage=s)
     assert game.boss is not None
     assert game.boss._stage == s

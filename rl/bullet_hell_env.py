@@ -5,7 +5,8 @@ Tuân thủ đặc tả void_survivor.md:
   - Observation: 45-dim vector chuẩn hóa [-1, 1]
   - Action: Discrete(9) — 0=idle, 1-4=move, 5-8=move+shoot
   - ActionMasking: khóa action 5-8 khi cooldown > 0
-  - Stage Mixing: 70/20/10 tại mỗi reset()
+  - Stage Mixing: "Sliding Window" — 60/25/15 tại mỗi reset()
+  - Adaptive Stagnation: ngưỡng và penalty co giãn theo stage
 """
 
 import os
@@ -33,6 +34,30 @@ ACTION_MAP = {
     6: (Action.DOWN,  True),
     7: (Action.LEFT,  True),
     8: (Action.RIGHT, True),
+}
+
+# ---------------------------------------------------------------------------
+# Adaptive stagnation config theo stage
+# Ngưỡng frame không gây damage trước khi truncate trận (không phạt điểm âm nặng)
+# Stage cao hơn → cho agent nhiều thời gian hơn để né đạn
+# ---------------------------------------------------------------------------
+_STAGNATION_TRUNCATE_FRAMES = {
+    1:  600,   # ~10 giây
+    2:  900,   # ~15 giây
+    3: 1200,   # ~20 giây
+    4: 2000,   # ~33 giây
+    5: 2500,   # ~41 giây
+    6: 3000,   # ~50 giây
+}
+# Penalty khi bị truncate do trì trệ — stage cao phạt nhẹ hơn
+# (Không phạt quá nặng để tránh suicide loop)
+_STAGNATION_TRUNCATE_PENALTY = {
+    1: -5.0,
+    2: -3.0,
+    3: -2.0,
+    4: -1.0,
+    5: -0.5,
+    6: -0.5,
 }
 
 
@@ -70,7 +95,7 @@ class BulletHellEnv(gym.Env):
         self._encoder = PPOStateEncoder()
         self._reward_shaper = PPORewardShaper()
         self._steps: int = 0
-        self.frames_since_last_damage = 0  # Đếm frame trì trệ không gây damage
+        self.frames_since_last_damage = 0
 
         # Pygame setup
         if render_mode != "human":
@@ -88,26 +113,39 @@ class BulletHellEnv(gym.Env):
         self._active_stage: int = 1
 
     # ------------------------------------------------------------------
-    # Stage Mixing (70 / 20 / 10)
+    # Stage Mixing — "Sliding Window" 60 / 25 / 15
     # ------------------------------------------------------------------
 
     def _pick_stage(self) -> int:
-        if self.current_stage == 1:
+        """
+        Cửa sổ trượt (Sliding Window):
+          60% → Stage hiện tại (bài mới)
+          25% → Stage liền trước (ôn bài gần nhất)
+          15% → Bất kỳ Stage nào trong quá khứ (neo bộ nhớ)
+
+        Khi current_stage == 1, luôn trả về 1.
+        Khi current_stage == 2, chia 70/30 (không có quá khứ xa).
+        """
+        s = self.current_stage
+        if s == 1:
             return 1
+        if s == 2:
+            return s if np.random.rand() < 0.70 else 1
+
         r = np.random.rand()
-        if r < 0.70:
-            return self.current_stage
-        elif r < 0.90:
-            return max(1, self.current_stage - 1)
+        if r < 0.60:
+            return s                                          # Stage mới nhất
+        elif r < 0.85:
+            return s - 1                                      # Stage vừa qua
         else:
-            return int(np.random.randint(1, max(2, self.current_stage)))
+            return int(np.random.randint(1, s - 1))          # Quá khứ xa ngẫu nhiên
 
     # ------------------------------------------------------------------
     # set_stage — gọi từ train_ppo qua vec_env.env_method
     # ------------------------------------------------------------------
 
     def set_stage(self, stage: int):
-        stage = max(1, min(4, stage))
+        stage = max(1, min(6, stage))
         if self.current_stage != stage:
             self.current_stage = stage
             self.steps_in_stage = 0
@@ -130,10 +168,14 @@ class BulletHellEnv(gym.Env):
         super().reset(seed=seed)
 
         self._active_stage = self._pick_stage()
-        self.game.init_match(stage=self._active_stage, stage_steps=self.steps_in_stage)
+
+        # Điểm 1: stage_steps của trận = 0 khi bắt đầu mỗi trận mới.
+        # Không lấy tổng thời gian tích lũy của toàn quá trình train (steps_in_stage)
+        # áp vào 1 trận đơn lẻ — tránh "ép độ khó tối đa" vào bài ôn tập.
+        self.game.init_match(stage=self._active_stage, stage_steps=0)
         self._reward_shaper.reset(self.game)
         self._steps = 0
-        self.frames_since_last_damage = 0  # Reset counter khi bắt đầu tập mới
+        self.frames_since_last_damage = 0
 
         obs = self._encoder.encode(self.game)
         info = {"stage": self._active_stage}
@@ -145,10 +187,10 @@ class BulletHellEnv(gym.Env):
 
     def step(self, action: int):
         action_enum, is_shooting = ACTION_MAP[int(action)]
-        
+
         # Lưu boss hp trước khi update
         prev_boss_hp = self.game.boss.health if self.game.boss else 0
-        
+
         self.game.update_with_action(action_enum, is_shooting)
         self._steps += 1
         self.steps_in_stage += 1
@@ -166,20 +208,21 @@ class BulletHellEnv(gym.Env):
         reward, breakdown = self._reward_shaper.compute(
             self.game,
             stage=self._active_stage,
-            stage_steps=self.steps_in_stage
+            stage_steps=self._steps,   # stage_steps = số bước trong trận này, không phải toàn bộ stage
         )
 
         terminated = self.game.is_over()
         truncated = self._steps >= self.max_steps
 
-        # Khai tử trận đấu nếu câu giờ vượt quá giới hạn chịu đựng (800 frames)
-        stagnation_truncate_penalty = 0.0
-        if self.frames_since_last_damage > 800:
+        # Điểm 2: Adaptive stagnation — ngưỡng và penalty co giãn theo stage
+        stagnation_limit = _STAGNATION_TRUNCATE_FRAMES.get(self._active_stage, 800)
+        stagnation_penalty_val = 0.0
+        if not truncated and self.frames_since_last_damage > stagnation_limit:
             truncated = True
-            stagnation_truncate_penalty = -5.0  # Phạt vừa phải, tránh kích hoạt suicide loop
-            reward += stagnation_truncate_penalty
-            
-        breakdown["stagnation_truncate_penalty"] = stagnation_truncate_penalty
+            stagnation_penalty_val = _STAGNATION_TRUNCATE_PENALTY.get(self._active_stage, -2.0)
+            reward += stagnation_penalty_val
+
+        breakdown["stagnation_truncate_penalty"] = stagnation_penalty_val
 
         info = {
             "is_win": self.game.is_victory,
