@@ -90,6 +90,7 @@ class BulletHellEnv(gym.Env):
         # Curriculum state — được set bởi train_ppo.py
         self.current_stage: int = 1
         self.steps_in_stage: int = 0
+        self.in_rollback_buffer: bool = False
 
         # Internals
         self._encoder = PPOStateEncoder()
@@ -113,12 +114,15 @@ class BulletHellEnv(gym.Env):
         self._active_stage: int = 1
 
     # ------------------------------------------------------------------
-    # Stage Mixing — "Sliding Window" 60 / 25 / 15
+    # Stage Mixing — "Sliding Window" / Rollback Buffer
     # ------------------------------------------------------------------
 
     def _pick_stage(self) -> int:
         """
-        Cửa sổ trượt (Sliding Window):
+        Nếu ở Vùng đệm Rollback:
+          50% → Stage hiện tại (danh nghĩa)
+          50% → Stage tiếp theo (bản nâng cao đang học dở)
+        Nếu bình thường, dùng Cửa sổ trượt (Sliding Window):
           60% → Stage hiện tại (bài mới)
           25% → Stage liền trước (ôn bài gần nhất)
           15% → Bất kỳ Stage nào trong quá khứ (neo bộ nhớ)
@@ -127,6 +131,9 @@ class BulletHellEnv(gym.Env):
         Khi current_stage == 2, chia 70/30 (không có quá khứ xa).
         """
         s = self.current_stage
+        if self.in_rollback_buffer:
+            return s if np.random.rand() < 0.50 else min(6, s + 1)
+
         if s == 1:
             return 1
         if s == 2:
@@ -141,7 +148,7 @@ class BulletHellEnv(gym.Env):
             return int(np.random.randint(1, s - 1))          # Quá khứ xa ngẫu nhiên
 
     # ------------------------------------------------------------------
-    # set_stage — gọi từ train_ppo qua vec_env.env_method
+    # set_stage / set_rollback_buffer — gọi từ train_ppo
     # ------------------------------------------------------------------
 
     def set_stage(self, stage: int):
@@ -149,6 +156,9 @@ class BulletHellEnv(gym.Env):
         if self.current_stage != stage:
             self.current_stage = stage
             self.steps_in_stage = 0
+
+    def set_rollback_buffer(self, active: bool):
+        self.in_rollback_buffer = active
 
     # ------------------------------------------------------------------
     # ActionMasking

@@ -52,19 +52,20 @@ class PPOConfig:
     old_stage_drop_limit: float = field(default_factory=lambda: _e("PPO_OLD_STAGE_DROP", float, 0.05))
     rollback_threshold: float = field(default_factory=lambda: _e("PPO_ROLLBACK_THRESHOLD", float, 0.15))
     rollback_patience: int = field(default_factory=lambda: _e("PPO_ROLLBACK_PATIENCE", int, 3))
+    consecutive_success_required: int = field(default_factory=lambda: _e("PPO_CONSECUTIVE_SUCCESS", int, 3))
 
     # --- MaskablePPO hyperparams ---
     n_envs: int          = field(default_factory=lambda: _e("PPO_N_ENVS", int, 8))
-    learning_rate: float = field(default_factory=lambda: _e("PPO_LR", float, 3e-4))
+    learning_rate: float = field(default_factory=lambda: _e("PPO_LR", float, 5e-5))
     gamma: float         = field(default_factory=lambda: _e("PPO_GAMMA", float, 0.99))
-    ent_coef: float      = field(default_factory=lambda: _e("PPO_ENT_COEF", float, 0.05))
+    ent_coef: float      = field(default_factory=lambda: _e("PPO_ENT_COEF", float, 0.015))
     n_steps: int         = field(default_factory=lambda: _e("PPO_N_STEPS", int, 2048))
     batch_size: int      = field(default_factory=lambda: _e("PPO_BATCH_SIZE", int, 256))
     n_epochs: int        = field(default_factory=lambda: _e("PPO_N_EPOCHS", int, 10))
     clip_range: float    = field(default_factory=lambda: _e("PPO_CLIP_RANGE", float, 0.2))
 
     # --- Dynamic entropy schedule ---
-    ent_coef_boost: float = field(default_factory=lambda: _e("PPO_ENT_COEF_BOOST", float, 0.02))
+    ent_coef_boost: float = field(default_factory=lambda: _e("PPO_ENT_COEF_BOOST", float, 0.005))
     ent_coef_boost_steps: int = field(default_factory=lambda: _e("PPO_ENT_COEF_BOOST_STEPS", int, 100_000))
     ent_coef_floor: float = field(default_factory=lambda: _e("PPO_ENT_COEF_FLOOR", float, 0.01))
 

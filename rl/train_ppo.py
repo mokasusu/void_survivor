@@ -92,12 +92,12 @@ def _write_meta(path: Path, data: dict):
 # Per-stage Learning Rate (Decay khi stage cao để tránh ghi đè kiến thức cũ)
 # ---------------------------------------------------------------------------
 _STAGE_LR = {
-    1: 3e-4,
-    2: 3e-4,
-    3: 1e-4,   # Stage 3 — bước ngoặt giảm LR
-    4: 1e-4,
-    5: 5e-5,   # Fine-tune nhẹ
-    6: 2e-5,   # Fine-tune cực nhẹ
+    1: 5e-5,   # Bắt đầu với LR thấp hơn để học ổn định
+    2: 5e-5,
+    3: 5e-5,
+    4: 5e-5,
+    5: 5e-5,
+    6: 5e-5,
 }
 
 
@@ -181,34 +181,42 @@ class EntropyScheduler:
     """
     Khi lên Stage mới: tăng ent_coef thêm boost trong boost_steps đầu.
     Sau đó giảm dần tuyến tính về floor.
+    Giới hạn ent_coef ở mức tối đa là 0.02 theo yêu cầu.
     """
 
     def __init__(self, cfg: PPOConfig):
-        self._base = cfg.ent_coef
-        self._boost = cfg.ent_coef_boost
+        self._base = min(cfg.ent_coef, 0.02)
+        self._boost = min(cfg.ent_coef_boost, 0.01)
         self._boost_steps = cfg.ent_coef_boost_steps
-        self._floor = cfg.ent_coef_floor
+        self._floor = min(cfg.ent_coef_floor, 0.01)
         self._stage_up_at: int | None = None
-        self._current = cfg.ent_coef
+        self._current = self._base
 
     def on_stage_up(self, global_step: int):
         self._stage_up_at = global_step
-        # Giới hạn boost tối đa +0.03 để tránh phá vỡ policy khi lên stage
-        capped_boost = min(self._boost, 0.03)
-        self._current = self._base + capped_boost
+        # Giới hạn tổng ent_coef sau boost tối đa là 0.02
+        self._current = min(self._base + self._boost, 0.02)
         print(f"  [Entropy] Tăng ent_coef → {self._current:.4f} (boost {self._boost_steps} steps)")
 
     def get(self, global_step: int) -> float:
         if self._stage_up_at is None:
-            return self._current
+            return min(self._current, 0.02)
         elapsed = global_step - self._stage_up_at
         if elapsed >= self._boost_steps:
             self._current = self._floor
             self._stage_up_at = None
         else:
             progress = elapsed / self._boost_steps
-            self._current = (self._base + self._boost) * (1 - progress) + self._floor * progress
-        return self._current
+            boosted_val = min(self._base + self._boost, 0.02)
+            self._current = boosted_val * (1 - progress) + self._floor * progress
+        return min(self._current, 0.02)
+
+
+def set_model_learning_rate(model: MaskablePPO, lr: float):
+    """Cập nhật learning rate cả trong PyTorch optimizer lẫn lr_schedule của SB3."""
+    model.lr_schedule = lambda _: lr
+    for param_group in model.policy.optimizer.param_groups:
+        param_group["lr"] = lr
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +243,7 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
         print(f"[Resume] Đang nạp checkpoint: {resume_path}")
         model = MaskablePPO.load(resume_path, env=vec_env)
         initial_lr = _STAGE_LR.get(start_stage, 3e-4)
-        for pg in model.policy.optimizer.param_groups:
-            pg["lr"] = initial_lr
+        set_model_learning_rate(model, initial_lr)
         print(f"[Resume] Đặt lại lr = {initial_lr} (Stage {start_stage})")
     else:
         model = MaskablePPO(
@@ -252,10 +259,13 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
             verbose=1,
             tensorboard_log=cfg.tensorboard_log,
         )
+        initial_lr = _STAGE_LR.get(start_stage, 3e-4)
+        set_model_learning_rate(model, initial_lr)
 
     # Curriculum state
     current_stage = max(1, min(6, start_stage))
     _set_stage_all_envs(vec_env, current_stage)
+    vec_env.env_method("set_rollback_buffer", False)
     if resume_path:
         print(f"[Resume] Bắt đầu từ Stage {current_stage}\n")
 
@@ -268,6 +278,7 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
     best_prev_win_rates: dict[int, float] = {}
     
     rollback_fail_count = 0
+    consecutive_successes = 0  # Bộ giảm chấn khi leo stage (Patience Multiplier)
     steps_trained = 0
     learn_block = cfg.eval_interval
 
@@ -313,34 +324,52 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
             model.save(str(best_model_path))
             print(f"[Checkpoint] Best model → {best_model_path} (Stage: {best_stage}, avg_wr={best_avg_win_rate:.1%})")
 
-        # Hàm thực thi rollback — dùng chung cho cả 2 nhánh kích hoạt
+        # Hàm thực thi rollback mềm
         def _do_rollback(reason: str):
-            nonlocal model, current_stage, best_stage, best_avg_win_rate, rollback_fail_count
-            print(f"\n!!! {reason} — KÍCH HOẠT ROLLBACK !!!")
-            if best_model_path.exists():
-                model = MaskablePPO.load(str(best_model_path), env=vec_env)
-                print(f"[Rollback] Đã tải lại {best_model_path}")
+            nonlocal model, current_stage, rollback_fail_count, consecutive_successes
+            print(f"\n!!! {reason} — KÍCH HOẠT ROLLBACK MỀM !!!")
+            # KHÔNG nạp lại best model để giữ lại các neuron chớm nở ở stage cao
             current_stage = max(1, current_stage - 1)
-            prev_win_rates.update(best_prev_win_rates)
+            
+            # Kích hoạt vùng đệm an toàn 50% stage hiện tại (danh nghĩa) và 50% stage tiếp theo
+            vec_env.env_method("set_rollback_buffer", True)
             _set_stage_all_envs(vec_env, current_stage)
             rollback_fail_count = 0
-            best_stage = current_stage
-            stage_rates = [best_prev_win_rates[s] for s in range(1, best_stage + 1) if s in best_prev_win_rates]
-            best_avg_win_rate = float(np.mean(stage_rates)) if stage_rates else -1.0
-            print(f"[Rollback] Quay lại Stage {current_stage}\n")
+            consecutive_successes = 0
+            
+            # Cập nhật LR phù hợp với stage mới
+            new_lr = _STAGE_LR.get(current_stage, 3e-4)
+            set_model_learning_rate(model, new_lr)
+            print(f"  [LR] Cập nhật lr → {new_lr} cho Stage {current_stage} (Rollback)")
+            
+            print(f"[Rollback] Quay lại Stage {current_stage} (Vùng đệm 50% Stage {current_stage} & 50% Stage {current_stage + 1})\n")
 
-        # Nâng Stage
-        if win_rate_cur > cfg.promote_threshold and not is_corrupted and current_stage < 6:
+        # Bộ giảm chấn khi Leo Stage (Patience Multiplier)
+        # Đạt win_rate >= 90% (hoặc promote_threshold nếu cấu hình cao hơn) liên tục consecutive_success_required lần
+        promote_target = max(0.90, cfg.promote_threshold)
+        is_success_iter = (win_rate_cur >= promote_target) and not is_corrupted
+        
+        if is_success_iter:
+            consecutive_successes += 1
+            print(f"  [Patience] Đạt yêu cầu ({win_rate_cur:.1%} >= {promote_target:.1%}): {consecutive_successes}/{cfg.consecutive_success_required}")
+        else:
+            if consecutive_successes > 0:
+                print(f"  [Patience] Reset chuỗi thắng liên tiếp về 0 (win_rate = {win_rate_cur:.1%}, corrupted = {is_corrupted})")
+            consecutive_successes = 0
+
+        # Thăng Stage khi tích lũy đủ số iteration thắng liên tiếp
+        if consecutive_successes >= cfg.consecutive_success_required and current_stage < 6:
             current_stage += 1
+            # Tắt rollback buffer, quay lại cơ chế Sliding Window thông thường
+            vec_env.env_method("set_rollback_buffer", False)
             _set_stage_all_envs(vec_env, current_stage)
             entropy_sched.on_stage_up(steps_trained)
             model.ent_coef = entropy_sched.get(steps_trained)
             rollback_fail_count = 0
+            consecutive_successes = 0
 
-            # Điểm 3: LR decay theo stage — Stage 5+ fine-tune nhẹ để bảo vệ kiến thức cũ
             new_lr = _STAGE_LR.get(current_stage, 3e-4)
-            for param_group in model.policy.optimizer.param_groups:
-                param_group["lr"] = new_lr
+            set_model_learning_rate(model, new_lr)
             print(f"  [LR] lr → {new_lr} cho Stage {current_stage}")
 
             print(f"\n{'*'*60}\n  *** TIẾN LÊN STAGE {current_stage}! ***\n{'*'*60}\n")
@@ -372,6 +401,7 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
             "best_avg_win_rate": round(best_avg_win_rate, 4),
             "ent_coef": round(current_ent, 6),
             "rollback_fail_count": rollback_fail_count,
+            "consecutive_successes": consecutive_successes,
         })
 
     final_path = run_dir / "final_model.zip"
