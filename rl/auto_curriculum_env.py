@@ -202,6 +202,13 @@ class AutomatedCurriculumWrapper(gym.Wrapper):
 
         return self.env.reset(**kwargs)
 
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        if terminated or truncated:
+            is_win = info.get("is_win", False)
+            self.update_post_episode(self.current_stage, is_win)
+        return obs, reward, terminated, truncated, info
+
     # ------------------------------------------------------------------
     # Thuộc tính proxy — đảm bảo train_ppo.py vẫn tương thích
     # ------------------------------------------------------------------

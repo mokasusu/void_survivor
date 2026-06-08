@@ -117,11 +117,12 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
     enc = PPOStateEncoder()
     wins = 0
 
+    env = BulletHellEnv(max_steps=cfg.max_steps)
     for _ in range(cfg.eval_episodes):
-        env = BulletHellEnv(max_steps=cfg.max_steps)
         # Ép stage cụ thể — bỏ qua stage mixing
-        env.current_stage = stage
-        env._active_stage = stage
+        env.set_stage_parameters(stage=stage, reward_scale=1.0)
+        env.reset()
+
         env.steps_in_stage = 999999  # Đánh giá ở mức độ khó tối đa (không bảo hiểm/DDA)
         env.game.init_match(stage=stage, stage_steps=999999)
         obs = enc.encode(env.game)
@@ -139,7 +140,7 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
 
         if info.get("is_win", False):
             wins += 1
-        env.close()
+    env.close()
 
     return wins / max(1, cfg.eval_episodes)
 
@@ -165,11 +166,6 @@ def evaluate_all_stages(
 
         if s == current_stage:
             win_rate_current = wr
-        else:
-            prev = prev_win_rates.get(s, wr)
-            if (prev - wr) > cfg.old_stage_drop_limit:
-                print(f"  [WARN] Stage {s} sụt từ {prev:.1%} → {wr:.1%} (>{cfg.old_stage_drop_limit:.0%})")
-                is_corrupted = True
 
         prev_win_rates[s] = max(prev_win_rates.get(s, 0.0), wr)
 
@@ -299,10 +295,7 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
         )
         print(f"[Eval] Stage {current_stage} win_rate = {win_rate_cur:.1%} | corrupted = {is_corrupted}")
 
-        for s, wr in current_win_rates.items():
-            _sync_eval_to_rolling_window(vec_env, s, wr, cfg.eval_episodes)
-
-        # Lấy Phase hiện tại sau khi sync (có thể đã thăng Phase)
+        # Lấy Phase hiện tại (có thể đã thăng Phase qua training step)
         try:
             phase_infos = vec_env.env_method("get_phase_info")
             current_train_phase = phase_infos[0].get("train_phase", 1) if phase_infos else 1
