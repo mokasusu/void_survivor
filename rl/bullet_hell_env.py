@@ -87,10 +87,21 @@ class BulletHellEnv(gym.Env):
             low=-1.0, high=1.0, shape=(45,), dtype=np.float32
         )
 
-        # Curriculum state — được set bởi train_ppo.py
+        # Curriculum state — được set bởi train_ppo.py hoặc AutomatedCurriculumWrapper
         self.current_stage: int = 1
         self.steps_in_stage: int = 0
         self.in_rollback_buffer: bool = False
+
+        # Potential-based Reward Scaling — được set bởi AutomatedCurriculumWrapper
+        # Stage 1 = 1.0×, Stage 6 = 2.25× (tăng 0.25 mỗi Stage)
+        self.reward_scale: float = 1.0
+
+        # Stage override — set bởi AutomatedCurriculumWrapper.reset() trước khi gọi env.reset()
+        # Đảm bảo _pick_stage() không override lại Stage mà Wrapper đã chọn
+        self._active_stage_override: int | None = None
+
+        # Train phase hiện tại — được Wrapper cập nhật để get_phase_info() trả đúng giá trị
+        self._curriculum_train_phase: int = 1
 
         # Internals
         self._encoder = PPOStateEncoder()
@@ -160,6 +171,22 @@ class BulletHellEnv(gym.Env):
     def set_rollback_buffer(self, active: bool):
         self.in_rollback_buffer = active
 
+    def set_stage_parameters(self, stage: int, reward_scale: float):
+        """
+        Được gọi bởi AutomatedCurriculumWrapper để đồng bộ Stage và Reward Scale.
+        Stage được lock vào _active_stage_override để reset() không gọi _pick_stage() override lại.
+        """
+        self.set_stage(stage)
+        self.reward_scale = max(1.0, reward_scale)
+        self._active_stage_override = stage  # Lock stage — reset() sẽ dùng cái này
+
+    def get_phase_info(self) -> dict:
+        """
+        Trả về train_phase thực sự (AutomatedCurriculumWrapper sẽ cập nhật _curriculum_train_phase).
+        VecEnv.env_method('get_phase_info') sẽ thu thập được thông tin Phase chính xác.
+        """
+        return {"train_phase": self._curriculum_train_phase, "current_stage": self.current_stage}
+
     # ------------------------------------------------------------------
     # ActionMasking
     # ------------------------------------------------------------------
@@ -177,7 +204,13 @@ class BulletHellEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        self._active_stage = self._pick_stage()
+        # Sử dụng override nếu AutomatedCurriculumWrapper đã chọn Stage trước,
+        # ngược lại mới gọi _pick_stage() (để tương thích khi không có Wrapper)
+        if self._active_stage_override is not None:
+            self._active_stage = self._active_stage_override
+            self._active_stage_override = None  # Clear sau khi dùng
+        else:
+            self._active_stage = self._pick_stage()
 
         # Điểm 1: stage_steps của trận = 0 khi bắt đầu mỗi trận mới.
         # Không lấy tổng thời gian tích lũy của toàn quá trình train (steps_in_stage)
@@ -219,6 +252,7 @@ class BulletHellEnv(gym.Env):
             self.game,
             stage=self._active_stage,
             stage_steps=self._steps,   # stage_steps = số bước trong trận này, không phải toàn bộ stage
+            reward_scale=self.reward_scale,  # Potential-based Reward Scaling từ AutomatedCurriculumWrapper
         )
 
         terminated = self.game.is_over()

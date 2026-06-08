@@ -1,12 +1,11 @@
 """
-train_ppo.py — Vòng lặp huấn luyện MaskablePPO với Robust Auto-Curriculum Learning.
+train_ppo.py — Vòng lặp huấn luyện MaskablePPO với Automated Curriculum Learning.
 
-Triển khai theo spec void_survivor.md (Mục II, III):
-  - Stage Mixing 70/20/10 tại env.reset()
+Tổ chức theo cấu trúc mô đun sạch:
+  - AutomatedCurriculumWrapper: Điều khiển phân phối Stage theo 5 Phase tự động
+  - AdaptiveHyperparameterCallback: Điều chỉnh Entropy + LR theo thời gian thực
   - Decoupled Evaluation mỗi PPO_EVAL_INTERVAL steps
-  - Điều kiện nâng Stage: win_rate > 80% & old stages không sụt > 5%
-  - Automatic Rollback: win_rate < 15% liên tục 3 kỳ eval, HOẶC ngay lập tức khi corrupted
-  - Dynamic Entropy Schedule: tăng ent_coef nhẹ (max +0.03) khi lên stage mới, giảm dần về floor
+  - train_ppo chỉ còn: train → eval → sync Rolling Window → lưu best model → ghi meta
 """
 
 # ---------------------------------------------------------------------------
@@ -53,6 +52,8 @@ except ImportError:
 
 from rl.bullet_hell_env import BulletHellEnv
 from rl.ppo_config import PPOConfig
+from rl.auto_curriculum_env import AutomatedCurriculumWrapper
+from rl.adaptive_callback import AdaptiveHyperparameterCallback
 
 
 # ---------------------------------------------------------------------------
@@ -64,22 +65,20 @@ def _build_run_dir(cfg: PPOConfig) -> Path:
     return Path(cfg.models_dir) / name
 
 
-def _make_env_fn(cfg: PPOConfig, render: bool = False):
-    """Factory tạo BulletHellEnv đã bọc ActionMasker."""
+def _make_env_fn(cfg: PPOConfig, render: bool = False, use_curriculum_wrapper: bool = True):
+    """Factory tạo BulletHellEnv đã bọc ActionMasker (và tùy chọn AutomatedCurriculumWrapper)."""
     def _factory():
         env = BulletHellEnv(
             render_mode="human" if render else None,
             max_steps=cfg.max_steps,
             render_fps=cfg.render_fps,
         )
+        if use_curriculum_wrapper:
+            env = AutomatedCurriculumWrapper(env)
         env = ActionMasker(env, lambda e: e.action_masks())
         return env
     return _factory
 
-
-def _set_stage_all_envs(vec_env: VecEnv, stage: int):
-    """Đồng bộ current_stage xuống tất cả sub-environments."""
-    vec_env.env_method("set_stage", stage)
 
 
 def _write_meta(path: Path, data: dict):
@@ -89,15 +88,19 @@ def _write_meta(path: Path, data: dict):
 
 
 # ---------------------------------------------------------------------------
-# Per-stage Learning Rate (Decay khi stage cao để tránh ghi đè kiến thức cũ)
+# Hằng số Learning Rate và mapping Phase → Eval Stage
 # ---------------------------------------------------------------------------
-_STAGE_LR = {
-    1: 5e-5,   # Bắt đầu với LR thấp hơn để học ổn định
-    2: 5e-5,
-    3: 5e-5,
-    4: 5e-5,
-    5: 5e-5,
-    6: 5e-5,
+_DEFAULT_LR = 5e-5  # LR ổn định, AdaptiveCallback sẽ tự boost khi cần
+
+# Phase hiện tại → Stage cao nhất cần eval để đo lường đúng tiến độ
+# Phase 1: eval đến Stage 2 (Stage 3 chỉ là preview, chưa yêu cầu thắng)
+# Phase 4/5: eval tất cả đến Stage 6
+_PHASE_TO_EVAL_STAGE: dict[int, int] = {
+    1: 2,
+    2: 4,
+    3: 5,
+    4: 6,
+    5: 6,
 }
 
 
@@ -173,43 +176,6 @@ def evaluate_all_stages(
     return win_rate_current, is_corrupted, current_win_rates
 
 
-# ---------------------------------------------------------------------------
-# Dynamic Entropy Schedule
-# ---------------------------------------------------------------------------
-
-class EntropyScheduler:
-    """
-    Khi lên Stage mới: tăng ent_coef thêm boost trong boost_steps đầu.
-    Sau đó giảm dần tuyến tính về floor.
-    Giới hạn ent_coef ở mức tối đa là 0.02 theo yêu cầu.
-    """
-
-    def __init__(self, cfg: PPOConfig):
-        self._base = min(cfg.ent_coef, 0.02)
-        self._boost = min(cfg.ent_coef_boost, 0.01)
-        self._boost_steps = cfg.ent_coef_boost_steps
-        self._floor = min(cfg.ent_coef_floor, 0.01)
-        self._stage_up_at: int | None = None
-        self._current = self._base
-
-    def on_stage_up(self, global_step: int):
-        self._stage_up_at = global_step
-        # Giới hạn tổng ent_coef sau boost tối đa là 0.02
-        self._current = min(self._base + self._boost, 0.02)
-        print(f"  [Entropy] Tăng ent_coef → {self._current:.4f} (boost {self._boost_steps} steps)")
-
-    def get(self, global_step: int) -> float:
-        if self._stage_up_at is None:
-            return min(self._current, 0.02)
-        elapsed = global_step - self._stage_up_at
-        if elapsed >= self._boost_steps:
-            self._current = self._floor
-            self._stage_up_at = None
-        else:
-            progress = elapsed / self._boost_steps
-            boosted_val = min(self._base + self._boost, 0.02)
-            self._current = boosted_val * (1 - progress) + self._floor * progress
-        return min(self._current, 0.02)
 
 
 def set_model_learning_rate(model: MaskablePPO, lr: float):
@@ -217,6 +183,27 @@ def set_model_learning_rate(model: MaskablePPO, lr: float):
     model.lr_schedule = lambda _: lr
     for param_group in model.policy.optimizer.param_groups:
         param_group["lr"] = lr
+
+
+# ---------------------------------------------------------------------------
+# Hàm đồng bộ Rolling Window (tách khỏi vòng lặp — fix #8)
+# ---------------------------------------------------------------------------
+
+def _sync_eval_to_rolling_window(vec_env, stage: int, win_rate: float, n_episodes: int):
+    """
+    Nạp kết quả eval vào stage_history của AutomatedCurriculumWrapper trong mọi sub-env.
+    ActionMasker sẽ delegate update_post_episode / check_phase_promotion xuống Wrapper.
+    """
+    wins = round(win_rate * n_episodes)
+    results_bool = [True] * wins + [False] * (n_episodes - wins)
+    try:
+        for is_win in results_bool:
+            vec_env.env_method("update_post_episode", stage, is_win)
+        vec_env.env_method("check_phase_promotion")
+    except Exception as e:
+        msg = str(e)
+        if "update_post_episode" not in msg and "check_phase_promotion" not in msg:
+            print(f"  [WARN] Không thể sync Rolling Window stage {stage}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -242,9 +229,8 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
     if resume_path:
         print(f"[Resume] Đang nạp checkpoint: {resume_path}")
         model = MaskablePPO.load(resume_path, env=vec_env)
-        initial_lr = _STAGE_LR.get(start_stage, 3e-4)
-        set_model_learning_rate(model, initial_lr)
-        print(f"[Resume] Đặt lại lr = {initial_lr} (Stage {start_stage})")
+        set_model_learning_rate(model, _DEFAULT_LR)
+        print(f"[Resume] Đặt lại lr = {_DEFAULT_LR} (AdaptiveCallback sẽ tự boost sau)")
     else:
         model = MaskablePPO(
             "MlpPolicy",
@@ -259,57 +245,80 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
             verbose=1,
             tensorboard_log=cfg.tensorboard_log,
         )
-        initial_lr = _STAGE_LR.get(start_stage, 3e-4)
-        set_model_learning_rate(model, initial_lr)
+        set_model_learning_rate(model, _DEFAULT_LR)
 
-    # Curriculum state
+    # current_stage chỉ dùng để tracking và eval — AutomatedCurriculumWrapper tự chọn Stage khi reset()
     current_stage = max(1, min(6, start_stage))
-    _set_stage_all_envs(vec_env, current_stage)
-    vec_env.env_method("set_rollback_buffer", False)
     if resume_path:
-        print(f"[Resume] Bắt đầu từ Stage {current_stage}\n")
+        print(f"[Resume] Bắt đầu từ Stage {current_stage} (AutomatedCurriculumWrapper sẽ tự phân phối)\n")
 
-    entropy_sched = EntropyScheduler(cfg)
-    prev_win_rates: dict[int, float] = {}
-    
-    # Best model tracking
+    # State theo dõi — best model tracking
     best_stage = 0
     best_avg_win_rate = -1.0
-    best_prev_win_rates: dict[int, float] = {}
-    
-    rollback_fail_count = 0
-    consecutive_successes = 0  # Bộ giảm chấn khi leo stage (Patience Multiplier)
     steps_trained = 0
     learn_block = cfg.eval_interval
 
     iterations = cfg.total_timesteps // learn_block
     print(f"[PPO] Sẽ chạy {iterations} iteration × {learn_block:,} steps/iter\n")
 
+    # --- Khởi tạo AdaptiveHyperparameterCallback ---
+    run_dir_str = str(run_dir / "checkpoints")
+    adaptive_callback = AdaptiveHyperparameterCallback(
+        eval_env=vec_env,
+        save_dir=run_dir_str,
+        verbose=1,
+    )
+    print(f"[PPO] AdaptiveHyperparameterCallback sẵn sàng. Auto-backup tại: {run_dir_str}")
+
+
+    # === VÒNG LẶP HUẤN LUYỆN — AutomatedCurriculumWrapper điều khiển Stage ===
+    # AdaptiveHyperparameterCallback điều khiển Entropy + LR theo thời gian thực.
+    # train_ppo chỉ còn: train → eval → sync Rolling Window → lưu best model → ghi meta.
+    prev_win_rates: dict[int, float] = {}
     for iteration in range(1, iterations + 1):
 
-        # Dynamic entropy
-        current_ent = entropy_sched.get(steps_trained)
-        model.ent_coef = current_ent
+        # Lấy ent_coef hiện tại để log (AdaptiveCallback đã tự điều chỉnh bên trong)
+        current_ent = float(model.ent_coef)
 
-        # Train block
-        model.learn(total_timesteps=learn_block, reset_num_timesteps=False, progress_bar=False)
+        # Train block — AdaptiveHyperparameterCallback chạy bên trong
+        model.learn(
+            total_timesteps=learn_block,
+            reset_num_timesteps=False,
+            progress_bar=False,
+            callback=adaptive_callback,
+        )
         steps_trained += learn_block
 
         print(f"\n{'='*60}")
-        print(f"[Iter {iteration}/{iterations}] Steps: {steps_trained:,} | Stage: {current_stage} | ent_coef: {current_ent:.4f}")
+        print(f"[Iter {iteration}/{iterations}] Steps: {steps_trained:,} | ent_coef: {current_ent:.4f}")
 
-        # Decoupled Evaluation
+        # === Eval và sync Rolling Window ===
         print("[Eval] Đang đánh giá độc lập...")
-        win_rate_cur, is_corrupted, current_win_rates = evaluate_all_stages(model, current_stage, cfg, prev_win_rates)
+        win_rate_cur, is_corrupted, current_win_rates = evaluate_all_stages(
+            model, current_stage, cfg, prev_win_rates
+        )
         print(f"[Eval] Stage {current_stage} win_rate = {win_rate_cur:.1%} | corrupted = {is_corrupted}")
 
-        # Lưu best model
+        for s, wr in current_win_rates.items():
+            _sync_eval_to_rolling_window(vec_env, s, wr, cfg.eval_episodes)
+
+        # Lấy Phase hiện tại sau khi sync (có thể đã thăng Phase)
+        try:
+            phase_infos = vec_env.env_method("get_phase_info")
+            current_train_phase = phase_infos[0].get("train_phase", 1) if phase_infos else 1
+        except Exception:
+            current_train_phase = 1
+
+        # Cập nhật current_stage theo Phase mới — fix #4 (current_stage đóng băng)
+        # current_stage được dùng cho eval vòng tiếp theo và lưu best model
+        new_eval_stage = _PHASE_TO_EVAL_STAGE.get(current_train_phase, current_stage)
+        if new_eval_stage > current_stage:
+            print(f"  [Phase {current_train_phase}] Eval stage nâng lên đến Stage {new_eval_stage}")
+            current_stage = new_eval_stage
+
+        # Lưu Best Model
         current_avg_wr = float(np.mean(list(current_win_rates.values()))) if current_win_rates else 0.0
-        
-        # Tiêu chí lưu best model:
-        # 1. Đạt stage cao hơn best_stage đã lưu trước đó.
-        # 2. Hoặc cùng stage nhưng avg_win_rate hiện tại cao hơn.
-        # Đồng thời mô hình không được bị corrupted (sụt giảm quá nhiều ở các stage cũ).
+
         is_new_best = False
         if not is_corrupted:
             if current_stage > best_stage:
@@ -320,88 +329,20 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
         if is_new_best:
             best_stage = current_stage
             best_avg_win_rate = current_avg_wr
-            best_prev_win_rates = prev_win_rates.copy()
             model.save(str(best_model_path))
             print(f"[Checkpoint] Best model → {best_model_path} (Stage: {best_stage}, avg_wr={best_avg_win_rate:.1%})")
-
-        # Hàm thực thi rollback mềm
-        def _do_rollback(reason: str):
-            nonlocal model, current_stage, rollback_fail_count, consecutive_successes
-            print(f"\n!!! {reason} — KÍCH HOẠT ROLLBACK MỀM !!!")
-            # KHÔNG nạp lại best model để giữ lại các neuron chớm nở ở stage cao
-            current_stage = max(1, current_stage - 1)
-            
-            # Kích hoạt vùng đệm an toàn 50% stage hiện tại (danh nghĩa) và 50% stage tiếp theo
-            vec_env.env_method("set_rollback_buffer", True)
-            _set_stage_all_envs(vec_env, current_stage)
-            rollback_fail_count = 0
-            consecutive_successes = 0
-            
-            # Cập nhật LR phù hợp với stage mới
-            new_lr = _STAGE_LR.get(current_stage, 3e-4)
-            set_model_learning_rate(model, new_lr)
-            print(f"  [LR] Cập nhật lr → {new_lr} cho Stage {current_stage} (Rollback)")
-            
-            print(f"[Rollback] Quay lại Stage {current_stage} (Vùng đệm 50% Stage {current_stage} & 50% Stage {current_stage + 1})\n")
-
-        # Bộ giảm chấn khi Leo Stage (Patience Multiplier)
-        # Đạt win_rate >= 90% (hoặc promote_threshold nếu cấu hình cao hơn) liên tục consecutive_success_required lần
-        promote_target = max(0.90, cfg.promote_threshold)
-        is_success_iter = (win_rate_cur >= promote_target) and not is_corrupted
-        
-        if is_success_iter:
-            consecutive_successes += 1
-            print(f"  [Patience] Đạt yêu cầu ({win_rate_cur:.1%} >= {promote_target:.1%}): {consecutive_successes}/{cfg.consecutive_success_required}")
-        else:
-            if consecutive_successes > 0:
-                print(f"  [Patience] Reset chuỗi thắng liên tiếp về 0 (win_rate = {win_rate_cur:.1%}, corrupted = {is_corrupted})")
-            consecutive_successes = 0
-
-        # Thăng Stage khi tích lũy đủ số iteration thắng liên tiếp
-        if consecutive_successes >= cfg.consecutive_success_required and current_stage < 6:
-            current_stage += 1
-            # Tắt rollback buffer, quay lại cơ chế Sliding Window thông thường
-            vec_env.env_method("set_rollback_buffer", False)
-            _set_stage_all_envs(vec_env, current_stage)
-            entropy_sched.on_stage_up(steps_trained)
-            model.ent_coef = entropy_sched.get(steps_trained)
-            rollback_fail_count = 0
-            consecutive_successes = 0
-
-            new_lr = _STAGE_LR.get(current_stage, 3e-4)
-            set_model_learning_rate(model, new_lr)
-            print(f"  [LR] lr → {new_lr} cho Stage {current_stage}")
-
-            print(f"\n{'*'*60}\n  *** TIẾN LÊN STAGE {current_stage}! ***\n{'*'*60}\n")
-            model.save(str(run_dir / f"stage_{current_stage}_entry.zip"))
-
-        # Rollback tức thì: stage cũ bị corrupted (catastrophic forgetting)
-        elif is_corrupted and current_stage > 1:
-            rollback_fail_count += 1
-            print(f"[WARN] Corrupted rollback counter: {rollback_fail_count}/{cfg.rollback_patience}")
-            if rollback_fail_count >= cfg.rollback_patience:
-                _do_rollback("PHÁT HIỆN CATASTROPHIC FORGETTING")
-
-        # Rollback chậm: stage hiện tại win_rate thấp kéo dài
-        elif win_rate_cur < cfg.rollback_threshold and current_stage > 1:
-            rollback_fail_count += 1
-            print(f"[WARN] Rollback counter: {rollback_fail_count}/{cfg.rollback_patience}")
-            if rollback_fail_count >= cfg.rollback_patience:
-                _do_rollback("PHÁT HIỆN SẬP POLICY")
-
-        else:
-            rollback_fail_count = 0
 
         _write_meta(meta_path, {
             "iteration": iteration,
             "steps_trained": steps_trained,
             "current_stage": current_stage,
+            "train_phase": current_train_phase,
             "win_rate_current_stage": round(win_rate_cur, 4),
+            "win_rates_all": {str(s): round(r, 4) for s, r in current_win_rates.items()},
             "best_stage": best_stage,
             "best_avg_win_rate": round(best_avg_win_rate, 4),
             "ent_coef": round(current_ent, 6),
-            "rollback_fail_count": rollback_fail_count,
-            "consecutive_successes": consecutive_successes,
+            "is_corrupted": is_corrupted,
         })
 
     final_path = run_dir / "final_model.zip"

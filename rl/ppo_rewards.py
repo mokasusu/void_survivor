@@ -39,7 +39,7 @@ class PPORewardShaper:
         self._prev_stage = 1
         self.frames_since_last_damage = 0
 
-    def compute(self, game, stage: int = 1, stage_steps: int = 0) -> tuple[float, dict]:
+    def compute(self, game, stage: int = 1, stage_steps: int = 0, reward_scale: float = 1.0) -> tuple[float, dict]:
         breakdown = {
             "frame": 0.0,
             "hit_penalty": 0.0,
@@ -97,7 +97,9 @@ class PPORewardShaper:
         boss_hp_loss = max(0, raw_boss_hp_loss)  # Triệt tiêu hoàn toàn số âm khi Boss đổi stage hồi máu
         
         if boss_hp_loss > 0:
-            breakdown["boss_damage"] += 0.6 * boss_hp_loss 
+            # Potential-based Reward Scaling: nhân boss_damage với reward_scale
+            # Stage 1 = ×1.0, Stage 6 = ×2.25 — giải quyết Sparse Reward ở Stage cao
+            breakdown["boss_damage"] += 0.6 * boss_hp_loss * reward_scale
             self.frames_since_last_damage = 0 
         else:
             if game.running:
