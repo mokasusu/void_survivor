@@ -101,25 +101,23 @@ class AutomatedCurriculumWrapper(gym.Wrapper):
         old_phase = self.train_phase
 
         if self.train_phase == 1:
-            # Thăng Phase 2: Thành thạo Stage 1 và 2
-            if self.get_win_rate(1) >= 0.90 and self.get_win_rate(2) >= 0.90:
+            # Thăng Phase 2: Thành thạo Stage 1 và 2 (Hạ ngưỡng cho 1-life agent)
+            if self.get_win_rate(1) >= 0.75 and self.get_win_rate(2) >= 0.70:
                 self.train_phase = 2
 
         elif self.train_phase == 2:
-            # Thăng Phase 3: Ổn định Stage 3 và bước đầu Stage 4
-            if self.get_win_rate(3) >= 0.80 and self.get_win_rate(4) >= 0.50:
+            # Thăng Phase 3: Ổn định Stage 3 và bước đầu Stage 4 (Hạ ngưỡng cho 1-life agent)
+            if self.get_win_rate(3) >= 0.60 and self.get_win_rate(4) >= 0.40:
                 self.train_phase = 3
 
         elif self.train_phase == 3:
-            # Thăng Phase 4: Ổn định Stage 4 và Stage 5 phải đạt 60%+
-            # Nâng từ 50% → 60% để tránh Agent exploit pattern đơn giản
-            # hoặc may mắn qua ngưỡng khi Stage 5 chỉ chiếm 35% data
-            if self.get_win_rate(4) >= 0.75 and self.get_win_rate(5) >= 0.60:
+            # Thăng Phase 4: Ổn định Stage 4 và Stage 5 (Hạ ngưỡng cho 1-life agent)
+            if self.get_win_rate(4) >= 0.60 and self.get_win_rate(5) >= 0.45:
                 self.train_phase = 4
 
         elif self.train_phase == 4:
-            # Thăng Phase 5 (Tốt nghiệp): Thành thạo Stage 5 và bước đầu Stage 6
-            if self.get_win_rate(5) >= 0.80 and self.get_win_rate(6) >= 0.50:
+            # Thăng Phase 5 (Tốt nghiệp): Thành thạo Stage 5 và bước đầu Stage 6 (Hạ ngưỡng cho 1-life agent)
+            if self.get_win_rate(5) >= 0.60 and self.get_win_rate(6) >= 0.40:
                 self.train_phase = 5
 
         # Kích hoạt Auto-Backup nếu phát hiện thăng Phase

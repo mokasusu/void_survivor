@@ -38,8 +38,12 @@ class GamePPO:
             pygame.init()
         if pygame.display.get_surface() is None:
             pygame.display.set_mode((WIDTH, HEIGHT))
-
-        self.player = Player(700, 300)
+        import random
+        # Game màn hình ngang: Boss ở trái (x=70), Player ở phải. Đạn Player bắn sang TRÁI (speed -14).
+        # Do đó Player phải xuất phát ở nửa PHẢI màn hình để bắn được Boss và tránh tự sát/học lệch.
+        rand_x = random.randint(550, WIDTH - 50)
+        rand_y = random.randint(150, HEIGHT - 100)
+        self.player = Player(rand_x, rand_y)
         self.boss: BossPPO | None = None
 
         self.bullet_manager = BulletManager()           # survival bullets (Stage 2+ env bullets)
@@ -84,7 +88,12 @@ class GamePPO:
         """Khởi tạo lại toàn bộ trạng thái game cho một trận đấu mới."""
         self._active_stage = stage
 
-        self.player = Player(700, 300)
+        import random
+        # Game màn hình ngang: Boss ở trái (x=70), Player ở phải. Đạn Player bắn sang TRÁI (speed -14).
+        # Do đó Player phải xuất phát ở nửa PHẢI màn hình để bắn được Boss và tránh tự sát/học lệch.
+        rand_x = random.randint(550, WIDTH - 50)
+        rand_y = random.randint(150, HEIGHT - 100)
+        self.player = Player(rand_x, rand_y)
         self.boss = BossPPO(stage=stage, stage_steps=stage_steps)
 
         self.bullet_manager = BulletManager()

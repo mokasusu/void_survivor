@@ -26,7 +26,7 @@ D_MAX = math.sqrt(WIDTH ** 2 + HEIGHT ** 2)
 class PPORewardShaper:
 
     def __init__(self):
-        self._prev_hp: int = 3
+        self._prev_hp: int = 1
         self._prev_boss_hp: int = 0
         self._prev_player_bullets: int = 0
         self._prev_stage: int = 1  # Theo dõi để reset bộ đếm khi qua màn
@@ -44,6 +44,7 @@ class PPORewardShaper:
             "frame": 0.0,
             "hit_penalty": 0.0,
             "safe_distance": 0.0,
+            "grazing": 0.0,
             "boss_damage": 0.0,
             "miss_penalty": 0.0,
             "alignment": 0.0,
@@ -61,6 +62,10 @@ class PPORewardShaper:
             self._prev_player_bullets = len(game.player_bullet_manager.bullets)
             self.frames_since_last_damage = 0
             return 0.0, breakdown  # Bỏ qua frame bản lề để an toàn toán học
+
+        # Phòng vệ khởi tạo HP: Nếu phát hiện HP hiện tại lớn hơn HP cũ (đầu trận hoặc hồi máu)
+        if game.player.health > self._prev_hp:
+            self._prev_hp = game.player.health
 
         # R_survival — Sống sót cơ bản
         if game.running:
@@ -82,6 +87,14 @@ class PPORewardShaper:
         proximity_radius = 60.0
         if 0 < closest_dist < proximity_radius:
             breakdown["safe_distance"] -= 0.05 * (1.0 - (closest_dist / proximity_radius))
+
+        # Thưởng suýt chết (Grazing Reward)
+        # Hitbox thực xấp xỉ khoảng cách từ tâm đến cạnh là 15px.
+        # Vùng Grazing bọc quanh với bán kính 50px từ tâm.
+        grazing_reward = 0.0
+        if 15.0 < closest_dist <= 50.0:
+            grazing_reward = 0.05
+        breakdown["grazing"] = grazing_reward
 
         # R_alignment — Thưởng đứng thẳng hàng Boss
         if game.boss and game.running:
@@ -114,9 +127,9 @@ class PPORewardShaper:
             # Phạt tăng dần cực kỳ mịn màng dựa trên số frame trễ, tối đa chỉ -0.02 mỗi frame
             breakdown["stagnation_penalty"] -= min(0.02, overshoot * 0.0001)
 
-        # Time Penalty
-        if game.running and stage >= 3:
-            breakdown["time_penalty"] -= 0.001
+        # Time Penalty: Phạt thời gian để triệt tiêu hành vi đứng im né đạn ở góc (-0.015/frame)
+        if game.running:
+            breakdown["time_penalty"] -= 0.015
 
         # R_offensive — Phạt bắn hụt (Đã vá lỗi logic và giới hạn trần phạt)
         cur_player_bullets = len(game.player_bullet_manager.bullets)
@@ -128,12 +141,12 @@ class PPORewardShaper:
                 # Giới hạn mức phạt tối đa mỗi frame (-0.1) để tránh việc dọn đạn hàng loạt làm sập mạng Value
                 breakdown["miss_penalty"] -= min(0.1, 0.02 * actual_missed)
 
-        # R_terminal
+        # R_terminal (Phạt nhẹ khi chết để định hướng, tránh sụp đổ hàm Value)
         if not game.running:
             if game.is_victory:
                 breakdown["terminal"] += 100.0
             else:
-                breakdown["terminal"] -= 20.0
+                breakdown["terminal"] -= 2.0
 
         # Cập nhật trạng thái
         self._prev_hp = game.player.health
@@ -142,7 +155,6 @@ class PPORewardShaper:
 
         total = sum(breakdown.values())
         return total, breakdown
-
     def _closest_bullet_dist(self, game, agent_cx: float, agent_cy: float) -> float:
         all_bullets = []
         if hasattr(game, "boss_bullet_manager"):
