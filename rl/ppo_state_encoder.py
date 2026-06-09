@@ -69,7 +69,7 @@ class PPOStateEncoder:
             base = 5 + i * 4
             bx = getattr(b, "x", 0)
             by = getattr(b, "y", 0)
-            # velocity — BossBullet có vx/vy, Bullet cũ chỉ có speed (hướng +x)
+            # velocity
             vx = getattr(b, "vx", getattr(b, "speed", 0.0))
             vy = getattr(b, "vy", 0.0)
             obs[base + 0] = (bx - agent_cx) / max(1, WIDTH)

@@ -112,6 +112,11 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
     """
     Chạy cfg.eval_episodes trận độc lập trên stage cụ thể.
     Trả về win_rate [0, 1].
+
+    QUAN TRỌNG: Phải dùng stage_steps=0 để khớp điều kiện huấn luyện.
+    Trước đây dùng stage_steps=999999 (Boss ở max difficulty) nhưng Agent
+    chỉ được train với stage_steps=0 (Boss bắn chậm / di chuyển nhẹ),
+    gây ra mismatch → 0% win rate giả.
     """
     from rl.ppo_state_encoder import PPOStateEncoder
     enc = PPOStateEncoder()
@@ -120,14 +125,16 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
     env = BulletHellEnv(max_steps=cfg.max_steps)
     for _ in range(cfg.eval_episodes):
         # Ép stage cụ thể — bỏ qua stage mixing
-        env.set_stage_parameters(stage=stage, reward_scale=1.0)
-        env.reset()
+        env.current_stage = stage
+        env._active_stage = stage
+        env.game.init_match(stage=stage, stage_steps=0)
 
-        env.steps_in_stage = 999999  # Đánh giá ở mức độ khó tối đa (không bảo hiểm/DDA)
-        env.game.init_match(stage=stage, stage_steps=999999)
-        obs = enc.encode(env.game)
+        # Reset đầy đủ trạng thái env để tránh carry-over từ episode trước
         env._reward_shaper.reset(env.game)
         env._steps = 0
+        env.frames_since_last_damage = 0  # QUAN TRỌNG: tránh stagnation truncate ngay frame đầu
+
+        obs = enc.encode(env.game)
 
         done = False
         info = {}
@@ -140,7 +147,9 @@ def evaluate_stage(model: MaskablePPO, stage: int, cfg: PPOConfig) -> float:
 
         if info.get("is_win", False):
             wins += 1
-    env.close()
+
+    # KHÔNG gọi env.close() vì nó trigger pygame.quit() toàn cục,
+    # có thể phá hủy pygame surfaces của các training envs đang chạy song song.
 
     return wins / max(1, cfg.eval_episodes)
 
@@ -305,15 +314,17 @@ def train(cfg: PPOConfig | None = None, resume_path: str | None = None, start_st
         # Cập nhật current_stage theo Phase mới — fix #4 (current_stage đóng băng)
         # current_stage được dùng cho eval vòng tiếp theo và lưu best model
         new_eval_stage = _PHASE_TO_EVAL_STAGE.get(current_train_phase, current_stage)
+        stage_increased = False
         if new_eval_stage > current_stage:
             print(f"  [Phase {current_train_phase}] Eval stage nâng lên đến Stage {new_eval_stage}")
             current_stage = new_eval_stage
+            stage_increased = True
 
         # Lưu Best Model
         current_avg_wr = float(np.mean(list(current_win_rates.values()))) if current_win_rates else 0.0
 
         is_new_best = False
-        if not is_corrupted:
+        if not is_corrupted and not stage_increased:
             if current_stage > best_stage:
                 is_new_best = True
             elif current_stage == best_stage and current_avg_wr > best_avg_win_rate:
