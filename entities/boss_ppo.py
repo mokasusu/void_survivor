@@ -51,6 +51,12 @@ class BossPPO:
         self._burst_bullets_left = 0
         self._burst_cooldown = 0
 
+        # Stage 6 independent timers
+        self._stage6_timer1 = 0
+        self._stage6_timer2 = 0
+        self._stage6_burst_left = 0
+        self._stage6_burst_cooldown = 0
+
         self.init_stage(stage, stage_steps)
 
     # ------------------------------------------------------------------
@@ -94,6 +100,12 @@ class BossPPO:
         self._burst_cooldown = 0
         self._move_timer = 0
         self._move_dir = random.choice([-1, 1])
+
+        # Reset Stage 6 timers
+        self._stage6_timer1 = 0
+        self._stage6_timer2 = 0
+        self._stage6_burst_left = 0
+        self._stage6_burst_cooldown = 0
 
         # Đặt Boss ở vị trí ngẫu nhiên cột bên trái
         self.x = 70
@@ -152,12 +164,59 @@ class BossPPO:
         self.y = max(min_y, min(max_y, self.y))
 
     def _update_shoot(self, player_cx: float, player_cy: float) -> list:
-        if not self._shoot_enabled or self._shoot_interval <= 0:
+        if not self._shoot_enabled:
             return []
 
         bullets = []
 
-        # Xử lý bắn đạn tuần tự (burst)
+        # --- Stage 6: Hai mạch đạn lệch pha tuần hoàn độc lập hoàn toàn ---
+        if self._stage == 6:
+            boss_cx = self.x + self.display_width / 2
+            boss_cy = self.y + self.display_height / 2
+
+            # Mạch đạn 1: Đạn chùm 5 tia (Nhịp cố định 2.0s = 120 frames, bay tốc độ vừa phải)
+            self._stage6_timer1 += 1
+            if self._stage6_timer1 >= 120:
+                self._stage6_timer1 = 0
+                speed1 = 6.0
+                bullets.extend(spawn_boss_bullets(
+                    "spread_large", boss_cx, boss_cy,
+                    player_cx, player_cy, speed1
+                ))
+
+            # Mạch đạn 2: Đạn random 2-3 viên (Nhịp nhanh 0.4s = 24 frames, liên tục, bay nhanh)
+            if self._stage6_burst_left > 0:
+                self._stage6_burst_cooldown -= 1
+                if self._stage6_burst_cooldown <= 0:
+                    target_x = player_cx + random.uniform(-40, 40)
+                    target_y = player_cy + random.uniform(-40, 40)
+                    speed2 = 8.5
+                    bullets.extend(spawn_boss_bullets(
+                        "straight", boss_cx, boss_cy,
+                        target_x, target_y, speed2
+                    ))
+                    self._stage6_burst_left -= 1
+                    self._stage6_burst_cooldown = random.randint(6, 12)
+            else:
+                self._stage6_timer2 += 1
+                if self._stage6_timer2 >= 24:
+                    self._stage6_timer2 = 0
+                    target_x = player_cx + random.uniform(-40, 40)
+                    target_y = player_cy + random.uniform(-40, 40)
+                    speed2 = 8.5
+                    bullets.extend(spawn_boss_bullets(
+                        "straight", boss_cx, boss_cy,
+                        target_x, target_y, speed2
+                    ))
+                    self._stage6_burst_left = random.randint(1, 2)  # Thêm 1-2 viên burst
+                    self._stage6_burst_cooldown = random.randint(6, 12)
+
+            return bullets
+
+        if self._shoot_interval <= 0:
+            return []
+
+        # Xử lý bắn đạn tuần tự (burst) cho các Stage khác
         if self._burst_bullets_left > 0:
             self._burst_cooldown -= 1
             if self._burst_cooldown <= 0:

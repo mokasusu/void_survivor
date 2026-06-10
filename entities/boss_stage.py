@@ -5,8 +5,8 @@ Stage 1: Boss đứng yên, HP thấp, không bắn.
 Stage 2: Boss đứng yên, bắn đạn thẳng, tần suất chậm.
 Stage 3: Boss di chuyển qua lại, tần suất bắn tăng, đạn nhanh hơn.
 Stage 4: Boss di chuyển thông minh, bắn 2-3 viên độc lập (không đuổi).
-Stage 5: Boss di chuyển thông minh, bắn đạn chùm nhẹ (tốc độ chậm).
-Stage 6: Boss di chuyển thông minh, bắn đạn chùm 5-6 viên (tốc độ chậm).
+Stage 5: Boss di chuyển thông minh, bắn đạn chùm lớn (spread_large) hướng thẳng về phía Agent.
+Stage 6: Boss di chuyển thông minh, kết hợp Stage 4 và 5 qua cơ chế "Lệch pha tuần hoàn" (timers độc lập).
 """
 
 import math
@@ -60,18 +60,18 @@ STAGE_CONFIGS = {
         "moves": True,
         "move_speed": 3.5,
         "shoot": True,
-        "shoot_interval_frames": 120,  # đạn chùm nhẹ, tốc độ bắn chậm (2s)
+        "shoot_interval_frames": 120,  # đạn chùm bắn về phía agent (2s)
         "bullet_speed": 7.5,
-        "pattern": "spread_light",
+        "pattern": "spread_large",
     },
     6: {
         "hp": 300,
         "moves": True,
         "move_speed": 4.0,
         "shoot": True,
-        "shoot_interval_frames": 120,  # đạn chùm 5-6 viên, tốc độ bắn chậm (2s)
+        "shoot_interval_frames": 120,  # Kết hợp Stage 4 & 5 qua timers độc lập
         "bullet_speed": 8.0,
-        "pattern": "spread_large",
+        "pattern": "periodic_stage6",
     },
 }
 
