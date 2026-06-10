@@ -15,7 +15,7 @@ class Player:
     HEIGHT = 30
     DISPLAY_WIDTH = 64
     DISPLAY_HEIGHT = 51
-    INVULNERABLE_DURATION_MS = 3000
+    INVULNERABLE_DURATION_MS = 1000
     BLINK_INTERVAL_MS = 120
 
     def __init__(self, x, y):
@@ -25,8 +25,8 @@ class Player:
 
         self.speed = 6
 
-        self.max_health = 3
-        self.health = 3
+        self.max_health = 1
+        self.health = 1
         self.invulnerable_until = 0
         self.sprite = load_image(
             "player.png",

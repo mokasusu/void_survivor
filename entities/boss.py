@@ -12,8 +12,8 @@ class Boss:
     def __init__(self):
 
         self.sprite = load_image("boss.png")
-        self.max_health = 100
-        self.health = 100
+        self.max_health = 50
+        self.health = 50
         self.display_width = 120
         self.display_height = 120
 
