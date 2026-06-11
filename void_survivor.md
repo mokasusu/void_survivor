@@ -28,13 +28,13 @@ Vector State là một mảng **45 chiều** cố định bao gồm:
 
 ### 2. Không gian Hành động (Action Space) & Action Masking
 
-Sử dụng **Discrete Action Space** gồm 9 hành động kết hợp giữa di chuyển 4 hướng và trạng thái bắn:
+Sử dụng **Discrete Action Space** gồm 9 hành động kết hợp giữa di chuyển 4 hướng và trạng thái bắn:............................
 
 * `0`: Đứng yên
 * `1`: Di chuyển Lên | `2`: Di chuyển Xuống | `3`: Di chuyển Trái | `4`: Di chuyển Phải
 * `5`: Lên + Bắn | `6`: Xuống + Bắn | `7`: Trái + Bắn | `8`: Phải + Bắn
 
-> 💡 **Cơ chế Action Masking:** Khi `Cooldown > 0` (súng đang nạp đạn), môi trường game sẽ sinh ra một mặt nạ hành động (action mask): `[True, True, True, True, True, False, False, False, False]`. Thuật toán `MaskablePPO` sẽ chủ động khóa các hành động từ 5 đến 8, ngăn Agent lãng phí tài nguyên tính toán vào việc thử nghiệm hành động bắn vô nghĩa.
+> 💡 **Cơ chế Action Masking:** Khi `Cooldown > 0` (súng đang nạp đạn), môi trường game sẽ sinh ra một mặt nạ hành động (action mask): `[True, True, True, True, True, False, False, False, False]`. Thuật toán `MaskablePPO` sẽ chủ động khóa các hành động từ 5 đến 8, ngăn Agent lãng phí tài nguyên tính toán vào việc thử nghiệm hành động bắn vô nghĩa....
 
 ### 3. Hàm Thưởng (Reward Function)
 
@@ -43,13 +43,13 @@ Hàm reward tổng quát tại mỗi step được cấu trúc theo công thức
 $$Reward = R_{survival} + R_{offensive} + R_{terminal}$$
 
 #### Nhánh Sinh Tồn ($R_{survival}$):
-* **Frame Reward:** $+0.005$ cho mỗi frame sống sót (giữ mức nhỏ để tránh Agent cố tình câu giờ).
+* **Frame Reward:** $+0.005$ cho mỗi frame sống sót (giữ mức nhỏ để tránh Agent cố tình câu giờ)...
 * **Phạt Trúng Đạn:** $-1.0$ ngay khi Agent bị trừ HP.
-* **Thưởng Khoảng Cách An Toàn:** $+0.01 \times \left( \frac{\text{Distance}(Agent, Bullet_{closest})}{D_{max}} \right)$ (Đã chuẩn hóa để tránh việc Agent quá nhát gan, ưu tiên trốn ở góc xa thay vì lao vào diệt Boss).
+* **Thưởng Khoảng Cách An Toàn:** $+0.01 \times \left( \frac{\text{Distance}(Agent, Bullet_{closest})}{D_{max}} \right)$ (Đã chuẩn hóa để tránh việc Agent quá nhát gan, ưu tiên trốn ở góc xa thay vì lao vào diệt Boss)..
 
 #### Nhánh Tấn Công ($R_{offensive}$):
 * **Thưởng Sát Thương:** $+0.2 \times (\text{Sát thương gây ra})$.
-* **Phạt Bắn Hụt:** $-0.05$ nếu Agent chọn hành động Bắn nhưng đạn bay ra ngoài màn hình mà không trúng Boss (Hạn chế việc AI spam nút bắn bừa bãi).
+* **Phạt Bắn Hụt:** $-0.05$ nếu Agent chọn hành động Bắn nhưng đạn bay ra ngoài màn hình mà không trúng Boss (Hạn chế việc AI spam nút bắn bừa bãi).....
 
 #### Nhánh Kết Thúc ($R_{terminal}$):
 * **Thắng Trận (Boss HP = 0):** $+50.0$
@@ -59,30 +59,30 @@ $$Reward = R_{survival} + R_{offensive} + R_{terminal}$$
 
 ## II. Kiến Trúc Curriculum Learning & Chiến Lược Stage Mixing
 
-Độ khó được tăng tiến tuyến tính thông qua việc cấu hình thực thể Boss trong môi trường, trong khi cấu trúc hàm Reward hoàn toàn được giữ nguyên.
+Độ khó được tăng tiến tuyến tính thông qua việc cấu hình thực thể Boss trong môi trường, trong khi cấu trúc hàm Reward hoàn toàn được giữ nguyên.....
 
 ### 1. Phân Chia Giai Đoạn (Stages)
 
 * **Stage 1 (Tập bắn):** Boss đứng yên, HP thấp ($100$). Boss không bắn đạn. Mục tiêu: Agent học cơ chế di chuyển lại gần Boss và bắn để lấy reward dương.
 * **Stage 2 (Né cơ bản):** Boss đứng yên. Boss bắn đạn thẳng, tần suất chậm (2 giây/viên). Mục tiêu: Agent học cách di chuyển qua lại để né đạn đan xen với việc bắn trả.
 * **Stage 3 (Mục tiêu di động):** Boss di chuyển qua lại. Tần suất bắn tăng, đạn bay nhanh hơn. Mục tiêu: Agent học cách vừa đuổi theo mục tiêu di động vừa luồn lách né đạn.
-* **Stage 4 (Full Phase):** Boss di chuyển thông minh, bắn đạn chùm (Spread) hoặc đạn đuổi (Homing). Mục tiêu: Tối ưu hóa Policy đến mức thượng thừa.
+* **Stage 4 (Full Phase):** Boss di chuyển thông minh, bắn đạn chùm (Spread) hoặc đạn đuổi (Homing). Mục tiêu: Tối ưu hóa Policy đến mức thượng thừa....
 
 ### 2. Chiến Lược Trộn Giai Đoạn (Stage Mixing)
 
 Để giải quyết triệt để hiện tượng *Recency Bias* (chỉ nhớ môi trường gần nhất) gây ra lỗi quên kiến thức cũ, tại mỗi lượt `reset()` môi trường để bắt đầu một trận đấu mới, cấu hình Stage của trận đó sẽ được chọn ngẫu nhiên theo tỷ lệ:
 
 * **70% xác suất:** Khởi chạy `Current_Stage` hiện tại.
-* **20% xác suất:** Khởi chạy `Current_Stage - 1` (Stage liền kề trước đó để ôn bài).
-* **10% xác suất:** Khởi chạy ngẫu nhiên một trong các Stage cũ hơn tính từ đầu game.
+* **20% xác suất:** Khởi chạy `Current_Stage - 1` (Stage liền kề trước đó để ôn bài)....................
+* **10% xác suất:** Khởi chạy ngẫu nhiên một trong các Stage cũ hơn tính từ đầu game................
 
 ---
 
 ## III. Quy Trình Huấn Luyện & Cơ Chế Đảm Bảo Độ Ổn Định
 
 ### 1. Đánh Giá Độc Lập (Decoupled Evaluation)
-Tách biệt hoàn toàn quá trình Huấn luyện (Training) và Đánh giá (Evaluation). Định kỳ mỗi $50,000$ steps huấn luyện, hệ thống sẽ chạy một luồng Evaluation độc lập gồm 20 trận test cho **từng Stage một** (từ Stage 1 đến Stage hiện tại) để ghi nhận Win-rate chuẩn xác sang TensorBoard.
-* Điều kiện nâng Stage: Win-rate của Stage hiện tại đạt $> 80\%$, đồng thời Win-rate các Stage cũ không bị sụt giảm quá $5\%$.
+Tách biệt hoàn toàn quá trình Huấn luyện (Training) và Đánh giá (Evaluation). Định kỳ mỗi $50,000$ steps huấn luyện, hệ thống sẽ chạy một luồng Evaluation độc lập gồm 20 trận test cho **từng Stage một** (từ Stage 1 đến Stage hiện tại) để ghi nhận Win-rate chuẩn xác sang TensorBoard.........................
+* Điều kiện nâng Stage: Win-rate của Stage hiện tại đạt $> 80\%$, đồng thời Win-rate các Stage cũ không bị sụt giảm quá $5\%$...................................................................................................................................................................................
 
 ### 2. Hệ Thống Checkpoint & Tự Động Rollback
 Khi môi trường tăng độ khó đột ngột, gradient của mạng dễ bị bùng nổ dẫn đến hỏng toàn bộ trọng số (Policy Collapse). 
@@ -94,7 +94,7 @@ Hệ số Entropy (`ent_coef`) quyết định mức độ khám phá (Explorati
 * Tại Stage 1: Thiết lập `ent_coef = 0.05` để Agent tích cực di chuyển tìm mục tiêu.
 * Mỗi khi hệ thống nâng lên một Stage mới: Tự động cộng thêm `+0.02` vào `ent_coef` hiện tại trong vòng $100,000$ steps đầu tiên để kích thích Agent tái khám phá, tìm giải pháp cho các làn đạn mới thay vì lười biếng áp dụng Policy cũ. Sau đó giảm dần về mức nền `0.01`.
 
----
+-------------------------------------------------------------------
 
 ## IV. Cấu Trúc Mã Nguồn Minh Họa (Python & SB3-Contrib)
 
