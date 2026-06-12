@@ -19,6 +19,15 @@ class UI:
             ],
             32
         )
+        self.small_font = pygame.font.SysFont(
+            [
+                "Orbitron",
+                "Audiowide",
+                "Eurostile",
+                "Consolas"
+            ],
+            22
+        )
 
         self.player_hp_icon = load_image(
             "player_hp.png",
@@ -145,3 +154,22 @@ class UI:
             icon_x = screen.get_width() - 20 - (weapon_level - i) * 14
             pygame.draw.circle(screen, color, (icon_x, icon_y), 4)
             pygame.draw.circle(screen, (255, 255, 255), (icon_x, icon_y), 4, 1)
+
+    def draw_episode_label(
+        self,
+        screen,
+        episode_label
+    ):
+
+        if not episode_label:
+            return
+
+        text = self.small_font.render(
+            f"{episode_label}",
+            True,
+            TEXT_COLOR
+        )
+
+        x = 20
+        y = screen.get_height() - text.get_height() - 20
+        screen.blit(text, (x, y))

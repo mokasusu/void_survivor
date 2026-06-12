@@ -16,7 +16,7 @@ class Player:
     HEIGHT = 30
     DISPLAY_WIDTH = 64
     DISPLAY_HEIGHT = 51
-    INVULNERABLE_DURATION_MS = 3000
+    INVULNERABLE_DURATION_MS = 1000
     BLINK_INTERVAL_MS = 120
 
     def __init__(self, x, y):

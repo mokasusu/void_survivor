@@ -19,12 +19,11 @@ from core.assets import load_image
 
 
 class Game:
-    def __init__(self, mode="survival"):
+    def __init__(self, mode="survival", controller=None, use_sim_time=False, sim_step_ms=16):
         self.mode = mode
         self.player = Player(700, 200)
         self.boss = Boss() if self.mode == "boss" else None
-
-        self.controller = HumanController()
+        self.controller = controller or HumanController()
         self.bullet_manager = BulletManager()
         self.player_bullet_manager = PlayerBulletManager()
 
@@ -36,11 +35,31 @@ class Game:
         self.running = True
         self.is_victory = False
 
-        self.start_time = pygame.time.get_ticks()
+        self.player_hit_count = 0
+
+        self.use_sim_time = use_sim_time
+        self.sim_step_ms = max(1, int(sim_step_ms))
+        self.time_ms = pygame.time.get_ticks()
+        self.start_time = self._now()
         self.end_time = None
         self.background = load_image("background.png", (WIDTH, HEIGHT))
         self.hit_effect_sprite = load_image("hit.png", (48, 48))
         self.hit_effects = []
+        self.episode_label = None
+
+    def _now(self):
+
+        if self.use_sim_time:
+            return self.time_ms
+
+        return pygame.time.get_ticks()
+
+    def advance_time(self, steps=1):
+
+        if not self.use_sim_time:
+            return
+
+        self.time_ms += self.sim_step_ms * max(1, int(steps))
 
         self.items = []
         self.boss_last_health = 100
@@ -73,7 +92,7 @@ class Game:
 
     def get_survival_time(self):
         if self.running or self.end_time is None:
-            current_time = pygame.time.get_ticks()
+            current_time = self._now()
         else:
             current_time = self.end_time
         total_seconds = (current_time - self.start_time) // 1000
@@ -81,7 +100,7 @@ class Game:
 
     def get_elapsed_seconds(self):
         if self.running or self.end_time is None:
-            current_time = pygame.time.get_ticks()
+            current_time = self._now()
         else:
             current_time = self.end_time
         return max(0, (current_time - self.start_time) // 1000)
@@ -101,10 +120,11 @@ class Game:
 
     # ── Collision handlers ───────────────────────────────────
     def handle_collision(self):
-        now = pygame.time.get_ticks()
+        now = self._now()
         for bullet in self.bullet_manager.bullets[:]:
             if CollisionSystem.check(self.player, bullet):
                 self.bullet_manager.bullets.remove(bullet)
+                self.player_hit_count += 1
                 took = self.player.take_damage(now)
                 if took and self.player.is_dead():
                     self.running = False
@@ -114,7 +134,7 @@ class Game:
     def handle_boss_collision(self):
         if self.boss is None:
             return
-        now = pygame.time.get_ticks()
+        now = self._now()
 
         # Đạn người chơi vs Minion
         for minion in self.boss.minions[:]:
@@ -142,7 +162,7 @@ class Game:
         if self.boss is None:
             return
         player_rect = pygame.Rect(self.player.x, self.player.y, self.player.WIDTH, self.player.HEIGHT)
-        now = pygame.time.get_ticks()
+        now = self._now()
         collision = player_rect.colliderect(self.boss.get_rect())
         for laser in self.boss.lasers:
             laser_rect = laser.get_damage_rect()
@@ -222,15 +242,19 @@ class Game:
 
     # ── Update / Draw helpers ────────────────────────────────
     def update_hit_effects(self):
-        now = pygame.time.get_ticks()
+        now = self._now()
         self.hit_effects = [e for e in self.hit_effects if e[2] > now]
 
     def update_floating_texts(self):
-        now = pygame.time.get_ticks()
+        now = self._now()
         self.floating_texts = [t for t in self.floating_texts if now - t["start"] < t["duration"]]
 
     def update(self):
         action = self.controller.get_action()
+        self.update_with_action(action, self.controller.is_shooting())
+
+    def update_with_action(self, action, is_shooting):
+        self.advance_time()
         self.player.update(action)
         self.bullet_manager.update()
         self.player_bullet_manager.update()
@@ -248,7 +272,7 @@ class Game:
 
         if self.shoot_cooldown > 0:
             self.shoot_cooldown -= 1
-        if self.controller.is_shooting() and self.shoot_cooldown == 0:
+        if is_shooting and self.shoot_cooldown == 0:
             sx, sy = self.player.get_shoot_origin()
             self.player_bullet_manager.shoot(sx, sy, self.player.weapon_level)
             self.shoot_cooldown = 16
@@ -340,6 +364,55 @@ class Game:
         surf.fill((0, 0, 0, 140))
         screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - 70))
         screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2 - 62))
+    def get_observation(self, max_bullets=5):
+
+        bullets_list = self.bullet_manager.bullets
+        player_cx = self.player.x + self.player.WIDTH / 2
+        player_cy = self.player.y + self.player.HEIGHT / 2
+
+        def _danger_score(bullet):
+            if bullet.speed <= 0:
+                return float("inf")
+            if bullet.x >= player_cx:
+                time_to_reach = float("inf")
+            else:
+                time_to_reach = (player_cx - bullet.x) / bullet.speed
+            y_dist = abs(bullet.y - player_cy) / max(1, HEIGHT)
+            return time_to_reach + y_dist * 0.5
+
+        if max_bullets is None or max_bullets >= len(bullets_list):
+            bullets = bullets_list
+        else:
+            bullets = sorted(
+                bullets_list,
+                key=_danger_score
+            )
+        features = []
+
+        player_y = self.player.y / max(1, HEIGHT)
+        features.append(player_y)
+
+        for bullet in bullets[:max_bullets]:
+            features.append(bullet.x / max(1, WIDTH))
+            features.append(bullet.y / max(1, HEIGHT))
+            features.append(bullet.speed / 12)
+            features.append(bullet.RADIUS / max(1, WIDTH))
+
+        missing = max_bullets - min(max_bullets, len(bullets))
+        for _ in range(missing):
+            features.extend([0.0, 0.0, 0.0, 0.0])
+
+        if self.boss is not None:
+            boss_x = self.boss.x / max(1, WIDTH)
+            boss_y = self.boss.y / max(1, HEIGHT)
+            boss_w = self.boss.display_width / max(1, WIDTH)
+            boss_h = self.boss.display_height / max(1, HEIGHT)
+            boss_ratio = 0 if self.boss.max_health <= 0 else self.boss.health / self.boss.max_health
+            features.extend([boss_x, boss_y, boss_w, boss_h, boss_ratio])
+        else:
+            features.extend([0.0, 0.0, 0.0, 0.0, 0.0])
+
+        return features
 
     def draw(self, screen):
         ox, oy = self.get_shake_offset()
@@ -379,6 +452,15 @@ class Game:
         if self.boss is not None:
             self.ui.draw_boss_health(screen, self.boss.health, self.boss.max_health)
 
+        self.ui.draw_episode_label(
+            screen,
+            self.episode_label
+        )
+
+    def set_episode_label(self, label):
+
+        self.episode_label = label
+
     def reset(self):
         self.player = Player(700, 200)
         self.boss = Boss() if self.mode == "boss" else None
@@ -388,7 +470,12 @@ class Game:
         self.shoot_cooldown = 0
         self.running = True
         self.is_victory = False
-        self.start_time = pygame.time.get_ticks()
+        self.player_hit_count = 0
+        if self.use_sim_time:
+            self.time_ms = 0
+            self.start_time = 0
+        else:
+            self.start_time = pygame.time.get_ticks()
         self.end_time = None
         self.hit_effects = []
         self.items = []
@@ -401,3 +488,13 @@ class Game:
         self.enrage_announce_until = 0
         self.shake_until = 0
         self.shake_strength = 0
+
+    def _now(self):
+        if self.use_sim_time:
+            return self.time_ms
+        return pygame.time.get_ticks()
+
+    def advance_time(self, steps=1):
+        if not self.use_sim_time:
+            return
+        self.time_ms += self.sim_step_ms * steps
